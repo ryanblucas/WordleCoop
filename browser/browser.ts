@@ -18,6 +18,7 @@ export abstract class BrowserState {
 }
 
 export class BrowserMenuState extends BrowserState {
+    private _userExited: boolean = false;
     private _previous: BrowserState;
 
     public constructor(previous: BrowserState) {
@@ -26,22 +27,29 @@ export class BrowserMenuState extends BrowserState {
     }
 
     public hasQueuedState(): boolean {
-        return false;
+        return this._userExited;
     }
-    public popQueuedState(): BrowserState | undefined {
-        return undefined;
-    }
-    public handleResize(wx: number, wy: number): void {
 
+    public popQueuedState(): BrowserState | undefined {
+        return this._previous;
     }
+
+    public handleResize(wx: number, wy: number): void {
+        this._previous.handleResize(wx, wy);
+    }
+
     public handleMouseClick(x: number, y: number): void {
 
     }
+
     public handleKeyClick(input: string): void {
-
+        this._userExited = true;
     }
-    public render(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, delta: number): void {
 
+    public render(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, delta: number): void {
+        ctx.filter = "blur(4px)";
+        this._previous.render(ctx, 0.0);
+        ctx.filter = "blur(0)";
     }
 }
 
@@ -65,12 +73,13 @@ export class BrowserGameState extends BrowserState {
     private _previousMessage: string = "";
 
     private _game: WordleGame;
-    private _forceRender = false;
+    private _popMessage = false;
 
     private _wx: number = 1;
     private _wy: number = 1;
 
     private _queuedState: BrowserState | undefined;
+
     public hasQueuedState(): boolean {
         return !!this._queuedState;
     }
@@ -145,12 +154,6 @@ export class BrowserGameState extends BrowserState {
     }
 
     public render(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, delta: number): void {
-        if (this._animations.length === 0 && this._currentWordAnimation === undefined && !this._forceRender)
-            return;
-
-        ctx.resetTransform();
-        ctx.fillStyle = "white";
-        ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
         ctx.setTransform(this._transform);
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
@@ -184,9 +187,9 @@ export class BrowserGameState extends BrowserState {
         this._menuButton.render(ctx, delta);
         ctx.font = "24px Sans-serif";
         ctx.textBaseline = "top";
-        if (this._forceRender) {
+        if (this._popMessage) {
             this._previousMessage = this._game.popMessage();
-            this._forceRender = false;
+            this._popMessage = false;
         }
         ctx.textAlign = "right";
         if (this._currentWordAnimation === undefined || this._currentWordAnimation.renderMessageDuring)
@@ -200,26 +203,23 @@ export class BrowserGameState extends BrowserState {
     }
 
     public handleResize(wx: number, wy: number): void {
-        let target = this._cellsRegion.merge(this._keysRegion);
+        const target = this._cellsRegion.merge(this._keysRegion);
         this._transform = new BrowserUIFactory().createTransform(target, target.centerRegion(this._wx = wx, this._wy = wy));
-        this._forceRender = true;
-    }
-
-    private keyboardPositionToKey(x: number, y: number): string {
-        let translate = this._transform.inverse().transformPoint(new DOMPoint(x, y));
-        x = translate.x;
-        y = translate.y;
-        for (let i = 0; i < this._keys.length; i++) {
-            if (this._keys[i].left < x && this._keys[i].top < y && this._keys[i].right > x && this._keys[i].bottom > y)
-                return this._keys[i].text === "\u232B" ? "Backspace" : this._keys[i].text;
-        }
-        return "";
+        this._popMessage = true;
     }
 
     public handleMouseClick(x: number, y: number): void {
-        let char = this.keyboardPositionToKey(x, y);
-        if (char.length > 0)
-            this.handleKeyClick(char);
+        const translate = this._transform.inverse().transformPoint(new DOMPoint(x, y));
+        x = translate.x;
+        y = translate.y;
+
+        for (let i = 0; i < this._keys.length; i++) {
+            if (this._keys[i].isPointInRectangle(x, y))
+                this.handleKeyClick(this._keys[i].text === "\u232B" ? "Backspace" : this._keys[i].text);
+        }
+
+        if (this._menuButton.isPointInRectangle(x, y))
+            this._queuedState = new BrowserMenuState(this);
     }
 
     private handleShortcuts(key: string): void {
@@ -323,7 +323,7 @@ export class BrowserGameState extends BrowserState {
         else
             return;
 
-        this._forceRender = true;
+        this._popMessage = true;
     }
 }
 
@@ -369,8 +369,10 @@ module BrowserWordle {
                 state.handleResize(previousWidth, previousHeight);
                 window.browserState = state;
             }
-            else
-                state.render(ctx, (curr - last) / 1000.0);
+            ctx.resetTransform();
+            ctx.fillStyle = "white";
+            ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+            state.render(ctx, (curr - last) / 1000.0);
             last = curr;
             requestAnimationFrame(frame);
         };
