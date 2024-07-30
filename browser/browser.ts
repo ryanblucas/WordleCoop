@@ -333,13 +333,11 @@ declare global {
 
 module BrowserWordle {
     export const canvasId = "wordle-coop";
-    export const framerate = 60;
-    export const delta = 1 / framerate;
 
     let state: BrowserState;
     let canvasElement: HTMLCanvasElement;
     let ctx: CanvasRenderingContext2D;
-    let previousWidth: number
+    let previousWidth: number;
     let previousHeight: number;
 
     function onKeyDown(this: Window, ev: KeyboardEvent): void {
@@ -350,18 +348,6 @@ module BrowserWordle {
         state.handleMouseClick(ev.x, ev.y);
     }
 
-    function onRender(): void {
-        if (previousWidth !== ctx.canvas.width || previousHeight !== ctx.canvas.height)
-            state.handleResize(previousWidth = ctx.canvas.width, previousHeight = ctx.canvas.height);
-        if (state.hasQueuedState()) {
-            state = state.popQueuedState()!;
-            state.handleResize(previousWidth, previousHeight);
-            window.browserState = state;
-        }
-        else
-            state.render(ctx, delta);
-    }
-
     export function main(): void {
         let _ctx = (canvasElement = document.getElementById(canvasId)! as HTMLCanvasElement).getContext("2d");
         if (!_ctx)
@@ -370,9 +356,25 @@ module BrowserWordle {
         ctx = _ctx;
         addEventListener("keydown", onKeyDown);
         addEventListener("click", onClick);
-        setInterval(onRender, delta);
+
         state = new BrowserGameState();
         window.browserState = state;
+
+        let last = performance.now();
+        const frame = (curr: number) => {
+            if (previousWidth !== ctx.canvas.width || previousHeight !== ctx.canvas.height)
+                state.handleResize(previousWidth = ctx.canvas.width, previousHeight = ctx.canvas.height);
+            if (state.hasQueuedState()) {
+                state = state.popQueuedState()!;
+                state.handleResize(previousWidth, previousHeight);
+                window.browserState = state;
+            }
+            else
+                state.render(ctx, (curr - last) / 1000.0);
+            last = curr;
+            requestAnimationFrame(frame);
+        };
+        requestAnimationFrame(frame);
     }
 }
 
