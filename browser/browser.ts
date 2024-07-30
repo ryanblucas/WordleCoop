@@ -360,6 +360,7 @@ module BrowserWordle {
         state = new BrowserGameState();
         window.browserState = state;
 
+        let fpsElapsed = 0.0;
         let last = performance.now();
         const frame = (curr: number) => {
             if (previousWidth !== ctx.canvas.width || previousHeight !== ctx.canvas.height)
@@ -372,8 +373,15 @@ module BrowserWordle {
             ctx.resetTransform();
             ctx.fillStyle = "white";
             ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-            state.render(ctx, (curr - last) / 1000.0);
+
+            const msDelta = curr - last;
+            state.render(ctx, msDelta / 1000.0);
+            if ((fpsElapsed += msDelta) > 1.0) {
+                fpsElapsed = 0.0;
+                console.log(1000.0 / msDelta);
+            }
             last = curr;
+
             requestAnimationFrame(frame);
         };
         requestAnimationFrame(frame);
