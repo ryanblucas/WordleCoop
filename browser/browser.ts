@@ -139,7 +139,7 @@ export class BrowserGameState extends BrowserState {
             creator.moveRegionContents(cellsRegion.wx / 2 - keysRegion.wx / 2, 0, [keys, keysRegion]);
 
         this._transform = creator.createTransform(cellsRegion.merge(keysRegion), cellsRegion.merge(keysRegion).centerRegion(this._wx, this._wy));
-        return [cells, cellsRegion, keys, keysRegion, new BrowserRectangle(2, 0, 40, 24, { text: "MENU", font: "bold 24px \"Verdana\"" })];
+        return [cells, cellsRegion, keys, keysRegion, new BrowserRectangle(0, 0, creator.measureText("bold 24px \"Verdana\"", "MENU")[0], 24, { text: "MENU", font: "bold 24px \"Verdana\"" })];
     }
 
     public constructor(word: string = "") {

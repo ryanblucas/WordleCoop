@@ -564,6 +564,13 @@ export class BrowserUIFactory {
     public static readonly settingsButtonWidthSpace = 10;
     public static readonly settingsExitButtonSize = 6;
 
+    private _fontMeasurer: BrowserFramebuffer;
+
+    public constructor() {
+        this._fontMeasurer = new BrowserFramebuffer(1, 1);
+        this._fontMeasurer.context.textBaseline = "top";
+    }
+
     private calculateStride(count: number, width: number, space: number): number {
         return count * width + (count - 1) * space;
     }
@@ -624,28 +631,37 @@ export class BrowserUIFactory {
     }
 
     /**
+     * Measures str's width and height in font.
+     * @param font Font to measure in
+     * @param str String to measure
+     * @returns An array of numbers; index 0 is width, index 1 is height.
+     */
+    public measureText(font: string, str: string): [number, number] {
+        this._fontMeasurer.context.font = font;
+        const textMetrics = this._fontMeasurer.context.measureText(str);
+        return [textMetrics.width, textMetrics.emHeightDescent];
+    }
+
+    /**
      * Creates menu with background and custom buttons
      * @param options Array of each options' text
      * @returns Array of rectangles, each index correlates with the "options" array + 1. The first index is the background, last index is the X button.
      */
     public createMenu(options: Array<string>): [Array<BrowserRectangle>, BrowserRegion] {
-        const offscreen = new BrowserFramebuffer(1, 1);
-        offscreen.context.font = BrowserUIFactory.settingsFont;
-        offscreen.context.textBaseline = "top";
         const region = new BrowserRegion(0, 0, 0, BrowserUIFactory.settingsSpace);
         for (let i = 0; i < options.length; i++) {
-            const textMetrics = offscreen.context.measureText(options[i]);
-            region.wx = Math.max(region.wx, textMetrics.width);
-            region.wy += textMetrics.emHeightDescent + BrowserUIFactory.settingsSpace;
+            const dims = this.measureText(BrowserUIFactory.settingsFont, options[i]);
+            region.wx = Math.max(region.wx, dims[0]);
+            region.wy += dims[1] + BrowserUIFactory.settingsSpace;
         }
         region.wx += BrowserUIFactory.settingsWidthSpace * 2;
 
         const buttons: Array<BrowserRectangle> = [];
         buttons.push(new BrowserRectangle(region.x, region.y, region.wx, region.wy, { style: "Gainsboro" }));
         for (let i = 0; i < options.length; i++) {
-            const textMetrics = offscreen.context.measureText(options[i]);
-            const width = textMetrics.width + BrowserUIFactory.settingsButtonWidthSpace, height = textMetrics.emHeightDescent;
-            buttons.push(new BrowserRectangle(region.wx / 2 - width / 2, i * (height + BrowserUIFactory.settingsSpace) + BrowserUIFactory.settingsSpace, width, height, { font: BrowserUIFactory.settingsFont, text: options[i] }));
+            const dims = this.measureText(BrowserUIFactory.settingsFont, options[i]);
+            dims[0] += BrowserUIFactory.settingsButtonWidthSpace;
+            buttons.push(new BrowserRectangle(region.wx / 2 - dims[0] / 2, i * (dims[1] + BrowserUIFactory.settingsSpace) + BrowserUIFactory.settingsSpace, dims[0], dims[1], { font: BrowserUIFactory.settingsFont, text: options[i] }));
         }
         buttons.push(new BrowserRectangle(region.x + region.wx - BrowserUIFactory.settingsExitButtonSize - 5, 5, BrowserUIFactory.settingsExitButtonSize, BrowserUIFactory.settingsExitButtonSize, { text: "X", font: "4px Sans-serif" }));
         return [buttons, region];
