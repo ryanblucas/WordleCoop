@@ -183,7 +183,10 @@ export class BrowserGameState extends BrowserState {
             cell.style = cell.styleList[WordleCharacterState.Green];
             cell.text = this._game.board.targetWord[i].toUpperCase();
         }
-        this._currentWordAnimation = new BrowserShakeAnimation(this._cells.splice(this.convert2Dto1D(this._game.board.currentWordIndex, 0), this._game.board.totalCharacterCount), this._game.board.currentWordIndex)
+        let cells = this._cells;
+        const i = this.convert2Dto1D(this._game.board.currentWordIndex, 0);
+        cells = cells.slice(i, i + this._game.board.totalCharacterCount);
+        this._currentWordAnimation = new BrowserShakeAnimation(cells, this._game.board.currentWordIndex);
     }
 
     public render(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, delta: number): void {
