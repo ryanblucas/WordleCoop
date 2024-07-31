@@ -17,15 +17,30 @@ export abstract class BrowserState {
     public abstract render(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, delta: number): void;
 }
 
+enum BrowserShortcut {
+    ToggleGuidedMode = 'T',
+    SetWordManual = 'S',
+    SetWordNumber = 'A',
+    GiveUp = 'G',
+}
+
 export class BrowserMenuState extends BrowserState {
     private _userExited: boolean = false;
     private _previous: BrowserState;
     private _background: BrowserFramebuffer;
 
+    private _transform: DOMMatrix;
+    private _region: BrowserRegion;
+    private _buttons: Array<BrowserRectangle>;
+
     public constructor(previous: BrowserState) {
         super();
         this._previous = previous;
         this._background = new BrowserFramebuffer(1, 1);
+
+        const uiFactory = new BrowserUIFactory();
+        [this._buttons, this._region] = uiFactory.createMenu(Object.keys(BrowserShortcut));
+        this._transform = uiFactory.createTransform(this._region, this._region.centerRegion(1, 1));
     }
 
     public hasQueuedState(): boolean {
@@ -44,10 +59,20 @@ export class BrowserMenuState extends BrowserState {
         this._previous.render(unblurred.context, 0.0);
         this._background.context.filter = "blur(2px)";
         this._background.context.drawImage(unblurred.canvas, 0, 0);
+
+        this._transform = new BrowserUIFactory().createTransform(this._region, this._region.centerRegion(wx, wy, 0.6));
     }
 
     public handleMouseClick(x: number, y: number): void {
-
+        const translate = this._transform.inverse().transformPoint(new DOMPoint(x, y));
+        x = translate.x;
+        y = translate.y;
+        for (let i = 1; i < this._buttons.length; i++) { // first index is the background, don't care about that being pressed
+            if (this._buttons[i].isPointInRectangle(x, y)) {
+                this._previous.handleKeyClick(Object.values(BrowserShortcut)[Object.keys(BrowserShortcut).indexOf(this._buttons[i].text)]);
+                this._userExited = true;
+            }
+        }
     }
 
     public handleKeyClick(input: string): void {
@@ -59,14 +84,13 @@ export class BrowserMenuState extends BrowserState {
         ctx.fillStyle = "white";
         ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
         ctx.drawImage(this._background.canvas, 0, 0);
-    }
-}
 
-enum BrowserShortcut {
-    ToggleGuidedMode = 'T',
-    SetWordManual = 'S',
-    SetWordNumber = 'A',
-    GiveUp = 'G',
+        ctx.setTransform(this._transform);
+        ctx.textBaseline = "middle";
+        ctx.textAlign = "center";
+        for (let i = 0; i < this._buttons.length; i++)
+            this._buttons[i].render(ctx, delta);
+    }
 }
 
 export class BrowserGameState extends BrowserState {

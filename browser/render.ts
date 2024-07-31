@@ -558,6 +558,11 @@ export class BrowserUIFactory {
     public static readonly keySpace = 5;
     public static readonly keyColors = ["Gainsboro", "DarkGray", "Yellow", "Green"];
 
+    public static readonly settingsFont = "14px Sans-serif";
+    public static readonly settingsSpace = 14;
+    public static readonly settingsWidthSpace = 20;
+    public static readonly settingsButtonWidthSpace = 10;
+
     private calculateStride(count: number, width: number, space: number): number {
         return count * width + (count - 1) * space;
     }
@@ -615,6 +620,33 @@ export class BrowserUIFactory {
         tuple[1].x += x;
         tuple[1].y += y;
         return tuple;
+    }
+
+    /**
+     * Creates menu with background and custom buttons
+     * @param options Array of each options' text
+     * @returns Array of rectangles, each index correlates with the "options" array + 1. The first index is the background
+     */
+    public createMenu(options: Array<string>): [Array<BrowserRectangle>, BrowserRegion] {
+        const offscreen = new BrowserFramebuffer(1, 1);
+        offscreen.context.font = BrowserUIFactory.settingsFont;
+        offscreen.context.textBaseline = "top";
+        const region = new BrowserRegion(0, 0, 1, 1);
+        for (let i = 0; i < options.length; i++) {
+            const textMetrics = offscreen.context.measureText(options[i]);
+            region.wx = Math.max(region.wx, textMetrics.width);
+            region.wy += textMetrics.emHeightDescent + BrowserUIFactory.settingsSpace;
+        }
+        region.wx += BrowserUIFactory.settingsWidthSpace * 2;
+
+        const buttons: Array<BrowserRectangle> = [];
+        buttons.push(new BrowserRectangle(region.x, region.y, region.wx, region.wy, { style: "Gainsboro" }));
+        for (let i = 0; i < options.length; i++) {
+            const textMetrics = offscreen.context.measureText(options[i]);
+            const width = textMetrics.width, height = textMetrics.emHeightDescent;
+            buttons.push(new BrowserRectangle(region.wx / 2 - width / 2, i * (height + BrowserUIFactory.settingsSpace) + BrowserUIFactory.settingsSpace / 2, width + BrowserUIFactory.settingsButtonWidthSpace, height, { font: BrowserUIFactory.settingsFont, text: options[i] }));
+        }
+        return [buttons, region];
     }
 
     public createTransform(from: BrowserRegion, to: BrowserRegion): DOMMatrix {
