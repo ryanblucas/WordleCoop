@@ -80,10 +80,34 @@ export class BrowserCharAnimation extends BrowserRenderAnimation {
 }
 
 export class BrowserFramebuffer {
-    public width: number;
-    public height: number;
+    private _width: number;
+    private _height: number;
     private _memoryCanvas: OffscreenCanvas;
     private _memoryContext: OffscreenCanvasRenderingContext2D;
+
+    public get width(): number {
+        return this._width;
+    }
+
+    public get height(): number {
+        return this._height;
+    }
+
+    public set width(value: number) {
+        this._width = value;
+        [this._memoryCanvas, this._memoryContext] = this.invalidateMemoryContext(this._memoryContext.getTransform());
+    }
+
+    public set height(value: number) {
+        this._height = value;
+        [this._memoryCanvas, this._memoryContext] = this.invalidateMemoryContext(this._memoryContext.getTransform());
+    }
+
+    public resize(width: number, height: number): void {
+        this._width = width;
+        this._height = height;
+        [this._memoryCanvas, this._memoryContext] = this.invalidateMemoryContext(this._memoryContext.getTransform());
+    }
 
     public get canvas(): OffscreenCanvas {
         return this._memoryCanvas;
@@ -99,7 +123,7 @@ export class BrowserFramebuffer {
 
     private invalidateMemoryContext(transform: DOMMatrix): [OffscreenCanvas, OffscreenCanvasRenderingContext2D] {
         const w = this.scaleOfTransform(transform);
-        const canvas = new OffscreenCanvas(this.width * w[0], this.height * w[1]);
+        const canvas = new OffscreenCanvas(this._width * w[0], this._height * w[1]);
         const ctx = canvas.getContext("2d");
         if (!ctx) {
             throw new Error("Failed to create memory context.");
@@ -111,8 +135,8 @@ export class BrowserFramebuffer {
     }
 
     public constructor(width: number, height: number) {
-        this.width = width;
-        this.height = height;
+        this._width = width;
+        this._height = height;
         [this._memoryCanvas, this._memoryContext] = this.invalidateMemoryContext(new DOMMatrix([1, 0, 0, 1, 0, 0]));
     }
 

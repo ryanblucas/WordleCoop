@@ -6,7 +6,7 @@
 
 import { WordleCharacterState, WordleGame } from "../wordle.js";
 import { WordListManager } from "../wordList.js";
-import { BrowserCharAnimation, BrowserRectangle, BrowserRegion, BrowserRenderAnimation, BrowserShakeAnimation, BrowserUIFactory, BrowserWinAnimation, BrowserWordAnimation } from "./render.js";
+import { BrowserCharAnimation, BrowserFramebuffer, BrowserRectangle, BrowserRegion, BrowserRenderAnimation, BrowserShakeAnimation, BrowserUIFactory, BrowserWinAnimation, BrowserWordAnimation } from "./render.js";
 
 export abstract class BrowserState {
     public abstract hasQueuedState(): boolean;
@@ -20,10 +20,12 @@ export abstract class BrowserState {
 export class BrowserMenuState extends BrowserState {
     private _userExited: boolean = false;
     private _previous: BrowserState;
+    private _background: BrowserFramebuffer;
 
     public constructor(previous: BrowserState) {
         super();
         this._previous = previous;
+        this._background = new BrowserFramebuffer(1, 1);
     }
 
     public hasQueuedState(): boolean {
@@ -36,6 +38,12 @@ export class BrowserMenuState extends BrowserState {
 
     public handleResize(wx: number, wy: number): void {
         this._previous.handleResize(wx, wy);
+        this._background.resize(wx, wy);
+
+        const unblurred = new BrowserFramebuffer(wx, wy);
+        this._previous.render(unblurred.context, 0.0);
+        this._background.context.filter = "blur(2px)";
+        this._background.context.drawImage(unblurred.canvas, 0, 0);
     }
 
     public handleMouseClick(x: number, y: number): void {
@@ -47,9 +55,10 @@ export class BrowserMenuState extends BrowserState {
     }
 
     public render(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, delta: number): void {
-        ctx.filter = "blur(4px)";
-        this._previous.render(ctx, 0.0);
-        ctx.filter = "blur(0)";
+        ctx.resetTransform();
+        ctx.fillStyle = "white";
+        ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+        ctx.drawImage(this._background.canvas, 0, 0);
     }
 }
 
@@ -376,7 +385,7 @@ module BrowserWordle {
 
             const msDelta = curr - last;
             state.render(ctx, msDelta / 1000.0);
-            if ((fpsElapsed += msDelta) > 1.0) {
+            if ((fpsElapsed += msDelta) > 1000.0) {
                 fpsElapsed = 0.0;
                 console.log(1000.0 / msDelta);
             }
