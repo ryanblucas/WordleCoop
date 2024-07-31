@@ -1,14 +1,20 @@
 {
   "compilerOptions": {
     "target": "es2022",
-    "module": "ES2022", /* change to commonjs for Node.JS compilation */
+    "moduleResolution": "Node",
     "sourceMap": true,
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
     "strict": true,
     "skipLibCheck": true,
-    "allowJs": true, /* required for md5.js import in wordleNet.ts */
+    "allowJs": true,
     "checkJs": false,
-    "outDir": "C:\\xampp\\htdocs\\wordleCoop"
-  }
+    "module": "es2022",
+    "outDir": "C:\\xampp\\htdocs\\wordleCoop"    /* for browser compilation */
+ /* "outDir": "" */                              /* for console compilation */
+  },
+
+  "exclude": [
+    "nodeImpl.ts"
+  ]
 }

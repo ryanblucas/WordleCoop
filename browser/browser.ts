@@ -4,6 +4,7 @@
 //  Browser backend for Wordle Coop
 //
 
+import { BrowserClient } from "../coop.js";
 import { WordleCharacterState, WordleGame } from "../wordle.js";
 import { WordListManager } from "../wordList.js";
 import { BrowserCharAnimation, BrowserFramebuffer, BrowserRectangle, BrowserRegion, BrowserRenderAnimation, BrowserShakeAnimation, BrowserUIFactory, BrowserWinAnimation, BrowserWordAnimation } from "./render.js";
@@ -17,11 +18,16 @@ export abstract class BrowserState {
     public abstract render(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, delta: number): void;
 }
 
+/**
+ *  Browser shortcuts/actions. Values must be a capital letter.
+ */
 enum BrowserShortcut {
     ToggleGuidedMode = 'T',
     SetWordManual = 'S',
     SetWordNumber = 'A',
     GiveUp = 'G',
+    JoinGame = 'J',
+    HostGame = 'H',
 }
 
 export class BrowserMenuState extends BrowserState {
@@ -293,6 +299,15 @@ export class BrowserGameState extends BrowserState {
 
             case BrowserShortcut.GiveUp:
                 this.giveUp();
+                break;
+
+            case BrowserShortcut.HostGame:
+            case BrowserShortcut.JoinGame:
+                const send = "Testing, should receive this string back";
+                BrowserClient.poll(send).then(v => {
+                    const success = v === send;
+                    console.log(`Sent \"${send}\", received \"${v}\". Success: ${success}.`);
+                });
                 break;
         }
     }
