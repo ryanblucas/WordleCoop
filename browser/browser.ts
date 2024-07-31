@@ -45,7 +45,16 @@ export class BrowserMenuState extends BrowserState {
         this._background = new BrowserFramebuffer(1, 1);
 
         const uiFactory = new BrowserUIFactory();
-        [this._buttons, this._region] = uiFactory.createMenu(Object.keys(BrowserShortcut));
+        // pascal case is when every letter is capitalized, like the class names and enum names in the project.
+        // Ironically, the variable name is camelCase, not PascalCase.
+        const pascalCase = Object.keys(BrowserShortcut);
+        for (let i = 0; i < pascalCase.length; i++) {
+            for (let j = pascalCase[i].length - 1; j > 0; j--) { // skip first character, always uppercase
+                if (pascalCase[i][j] == pascalCase[i][j].toUpperCase())
+                    pascalCase[i] = pascalCase[i].slice(0, j) + ' ' + pascalCase[i].slice(j);
+            }
+        }
+        [this._buttons, this._region] = uiFactory.createMenu(pascalCase);
         this._transform = uiFactory.createTransform(this._region, this._region.centerRegion(1, 1));
     }
 
