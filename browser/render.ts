@@ -562,6 +562,7 @@ export class BrowserUIFactory {
     public static readonly settingsSpace = 14;
     public static readonly settingsWidthSpace = 20;
     public static readonly settingsButtonWidthSpace = 10;
+    public static readonly settingsExitButtonSize = 6;
 
     private calculateStride(count: number, width: number, space: number): number {
         return count * width + (count - 1) * space;
@@ -625,13 +626,13 @@ export class BrowserUIFactory {
     /**
      * Creates menu with background and custom buttons
      * @param options Array of each options' text
-     * @returns Array of rectangles, each index correlates with the "options" array + 1. The first index is the background
+     * @returns Array of rectangles, each index correlates with the "options" array + 1. The first index is the background, last index is the X button.
      */
     public createMenu(options: Array<string>): [Array<BrowserRectangle>, BrowserRegion] {
         const offscreen = new BrowserFramebuffer(1, 1);
         offscreen.context.font = BrowserUIFactory.settingsFont;
         offscreen.context.textBaseline = "top";
-        const region = new BrowserRegion(0, 0, 1, 1);
+        const region = new BrowserRegion(0, 0, 0, BrowserUIFactory.settingsSpace);
         for (let i = 0; i < options.length; i++) {
             const textMetrics = offscreen.context.measureText(options[i]);
             region.wx = Math.max(region.wx, textMetrics.width);
@@ -643,9 +644,10 @@ export class BrowserUIFactory {
         buttons.push(new BrowserRectangle(region.x, region.y, region.wx, region.wy, { style: "Gainsboro" }));
         for (let i = 0; i < options.length; i++) {
             const textMetrics = offscreen.context.measureText(options[i]);
-            const width = textMetrics.width, height = textMetrics.emHeightDescent;
-            buttons.push(new BrowserRectangle(region.wx / 2 - width / 2, i * (height + BrowserUIFactory.settingsSpace) + BrowserUIFactory.settingsSpace / 2, width + BrowserUIFactory.settingsButtonWidthSpace, height, { font: BrowserUIFactory.settingsFont, text: options[i] }));
+            const width = textMetrics.width + BrowserUIFactory.settingsButtonWidthSpace, height = textMetrics.emHeightDescent;
+            buttons.push(new BrowserRectangle(region.wx / 2 - width / 2, i * (height + BrowserUIFactory.settingsSpace) + BrowserUIFactory.settingsSpace, width, height, { font: BrowserUIFactory.settingsFont, text: options[i] }));
         }
+        buttons.push(new BrowserRectangle(region.x + region.wx - BrowserUIFactory.settingsExitButtonSize - 5, 5, BrowserUIFactory.settingsExitButtonSize, BrowserUIFactory.settingsExitButtonSize, { text: "X", font: "4px Sans-serif" }));
         return [buttons, region];
     }
 

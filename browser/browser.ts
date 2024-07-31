@@ -60,19 +60,21 @@ export class BrowserMenuState extends BrowserState {
         this._background.context.filter = "blur(2px)";
         this._background.context.drawImage(unblurred.canvas, 0, 0);
 
-        this._transform = new BrowserUIFactory().createTransform(this._region, this._region.centerRegion(wx, wy, 0.6));
+        this._transform = new BrowserUIFactory().createTransform(this._region, this._region.centerRegion(wx, wy, 0.4));
     }
 
     public handleMouseClick(x: number, y: number): void {
         const translate = this._transform.inverse().transformPoint(new DOMPoint(x, y));
         x = translate.x;
         y = translate.y;
-        for (let i = 1; i < this._buttons.length; i++) { // first index is the background, don't care about that being pressed
+        for (let i = 1; i < this._buttons.length - 1; i++) { // first index is the background, don't care about that being pressed and last requires a special handler
             if (this._buttons[i].isPointInRectangle(x, y)) {
-                this._previous.handleKeyClick(Object.values(BrowserShortcut)[Object.keys(BrowserShortcut).indexOf(this._buttons[i].text)]);
+                this._previous.handleKeyClick(Object.values(BrowserShortcut)[i - 1]);
                 this._userExited = true;
             }
         }
+        if (this._buttons[this._buttons.length - 1].isPointInRectangle(x, y))
+            this._userExited = true;
     }
 
     public handleKeyClick(input: string): void {
