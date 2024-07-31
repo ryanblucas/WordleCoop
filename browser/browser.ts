@@ -154,6 +154,9 @@ export class BrowserGameState extends BrowserState {
     }
 
     public render(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, delta: number): void {
+        ctx.resetTransform();
+        ctx.fillStyle = "white";
+        ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
         ctx.setTransform(this._transform);
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
@@ -370,9 +373,6 @@ module BrowserWordle {
                 state.handleResize(previousWidth, previousHeight);
                 window.browserState = state;
             }
-            ctx.resetTransform();
-            ctx.fillStyle = "white";
-            ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
 
             const msDelta = curr - last;
             state.render(ctx, msDelta / 1000.0);

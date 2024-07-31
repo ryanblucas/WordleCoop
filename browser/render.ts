@@ -79,6 +79,56 @@ export class BrowserCharAnimation extends BrowserRenderAnimation {
     }
 }
 
+export class BrowserFramebuffer {
+    public width: number;
+    public height: number;
+    private _memoryCanvas: OffscreenCanvas;
+    private _memoryContext: OffscreenCanvasRenderingContext2D;
+
+    public get canvas(): OffscreenCanvas {
+        return this._memoryCanvas;
+    }
+
+    public get context(): OffscreenCanvasRenderingContext2D {
+        return this._memoryContext;
+    }
+
+    private scaleOfTransform(transform: DOMMatrix): [number, number] {
+        return [Math.sqrt(transform.a * transform.a + transform.b * transform.b), Math.sqrt(transform.c * transform.c + transform.d * transform.d)];
+    }
+
+    private invalidateMemoryContext(transform: DOMMatrix): [OffscreenCanvas, OffscreenCanvasRenderingContext2D] {
+        const w = this.scaleOfTransform(transform);
+        const canvas = new OffscreenCanvas(this.width * w[0], this.height * w[1]);
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+            throw new Error("Failed to create memory context.");
+        }
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.scale(w[0], w[1]);
+        return [canvas, ctx];
+    }
+
+    public constructor(width: number, height: number) {
+        this.width = width;
+        this.height = height;
+        [this._memoryCanvas, this._memoryContext] = this.invalidateMemoryContext(new DOMMatrix([1, 0, 0, 1, 0, 0]));
+    }
+
+    /**
+     *  Transforms framebuffer to matrix, potentially destroying the old and creating a larger/smaller one in the process.
+     *  @param matrix The matrix to transform the framebuffer by; this is checked with the current matrix before resizing to see if it's necessary.
+     *  @returns True on new, resized framebuffer; false on nothing changing.
+     */
+    public transform(matrix: DOMMatrix): boolean {
+        const needsNew = this.scaleOfTransform(matrix) !== this.scaleOfTransform(this._memoryContext.getTransform());
+        if (needsNew)
+            [this._memoryCanvas, this._memoryContext] = this.invalidateMemoryContext(matrix);
+        return needsNew;
+    }
+}
+
 export class BrowserWordAnimation extends BrowserRenderAnimation {
     public get duration(): number {
         return 1.5;
@@ -110,27 +160,7 @@ export class BrowserWordAnimation extends BrowserRenderAnimation {
 
     public currentWord: Array<BrowserRectangle>;
     public targetWord: Array<BrowserRectangle>;
-    private _currentRegion: BrowserRegion;
-
-    private _memoryCanvas: OffscreenCanvas;
-    private _memoryContext: OffscreenCanvasRenderingContext2D;
-
-    private scaleOfTransform(transform: DOMMatrix): [number, number] {
-        return [Math.sqrt(transform.a * transform.a + transform.b * transform.b), Math.sqrt(transform.c * transform.c + transform.d * transform.d)];
-    }
-
-    private invalidateMemoryContext(transform: DOMMatrix): [OffscreenCanvas, OffscreenCanvasRenderingContext2D] {
-        const w = this.scaleOfTransform(transform);
-        const canvas = new OffscreenCanvas(this._currentRegion.wx * w[0], this._currentRegion.wy * w[1]);
-        const ctx = canvas.getContext("2d");
-        if (!ctx) {
-            throw new Error("Failed to create memory context.");
-        }
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.scale(w[0], w[1]);
-        return [canvas, ctx];
-    }
+    private _offscreen: BrowserFramebuffer;
 
     public constructor(prevWord: Array<BrowserRectangle>, currWord: Array<BrowserRectangle>, id: number = 0) {
         super();
@@ -138,15 +168,13 @@ export class BrowserWordAnimation extends BrowserRenderAnimation {
             throw new Error("Words passed to BrowserWordAnimation are not compatible.");
         this.currentWord = prevWord;
         this.targetWord = currWord;
-        this._currentRegion = BrowserRegion.fromRectangles(prevWord[0]);
-        [this._memoryCanvas, this._memoryContext] = this.invalidateMemoryContext(new DOMMatrix([1, 0, 0, 1, 0, 0]));
+        this._offscreen = new BrowserFramebuffer(prevWord[0].wx, prevWord[0].wy);
         this.id = id;
     }
 
     public render(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, delta: number): void {
-        if (this.scaleOfTransform(ctx.getTransform()) !== this.scaleOfTransform(this._memoryContext.getTransform()))
-            [this._memoryCanvas, this._memoryContext] = this.invalidateMemoryContext(ctx.getTransform());
-        this._memoryContext.font = ctx.font;
+        this._offscreen.transform(ctx.getTransform());
+        this._offscreen.context.font = ctx.font;
         for (let i = 0; i < this.currentWord.length; i++) {
             let w = 0;
             if (this.index === i) {
@@ -161,12 +189,12 @@ export class BrowserWordAnimation extends BrowserRenderAnimation {
             ctx.strokeStyle = this.currentWord[i].strokeStyle;
             ctx.strokeRect(this.currentWord[i].x, this.currentWord[i].y + w, this.currentWord[i].wx, this.currentWord[i].wy - w * 2);
 
-            this._memoryContext.clearRect(0, 0, this._memoryCanvas.width, this._memoryCanvas.height);
-            this._memoryContext.fillStyle = this.currentWord[i].fontStyle;
-            this._memoryContext.font = this.currentWord[i].font;
-            this._memoryContext.fillText(this.currentWord[i].text, this.currentWord[i].wx / 2, this.currentWord[i].wy / 2);
+            this._offscreen.context.clearRect(0, 0, this._offscreen.canvas.width, this._offscreen.canvas.height);
+            this._offscreen.context.fillStyle = this.currentWord[i].fontStyle;
+            this._offscreen.context.font = this.currentWord[i].font;
+            this._offscreen.context.fillText(this.currentWord[i].text, this.currentWord[i].wx / 2, this.currentWord[i].wy / 2);
 
-            ctx.drawImage(this._memoryCanvas, this.currentWord[i].x, this.currentWord[i].y + w, this.currentWord[i].wx, this.currentWord[i].wy - w * 2);
+            ctx.drawImage(this._offscreen.canvas, this.currentWord[i].x, this.currentWord[i].y + w, this.currentWord[i].wx, this.currentWord[i].wy - w * 2);
         }
     }
 }
