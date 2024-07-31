@@ -234,7 +234,7 @@ export class BrowserGameState extends BrowserState {
         }
         ctx.textAlign = "right";
         if (this._currentWordAnimation === undefined || this._currentWordAnimation.renderMessageDuring)
-            ctx.fillText(this._previousMessage, this._cellsRegion.x + Math.max(this._cellsRegion.wx, this._keysRegion.wx), 0);
+            ctx.fillText(this._previousMessage, Math.min(this._cellsRegion.x, this._keysRegion.x) + Math.max(this._cellsRegion.wx, this._keysRegion.wx), 0, 250);
 
         if (this._game.guidedMode) {
             ctx.textAlign = "left";
