@@ -75,7 +75,7 @@ export class BrowserMenuState extends BrowserState {
         this._background.context.filter = "blur(2px)";
         this._background.context.drawImage(unblurred.canvas, 0, 0);
 
-        this._transform = new BrowserUIFactory().createTransform(this._region, this._region.centerRegion(wx, wy, 0.4));
+        this._transform = new BrowserUIFactory().createTransform(this._region, this._region.centerRegion(wx, wy, 0.5));
     }
 
     public handleMouseClick(x: number, y: number): void {

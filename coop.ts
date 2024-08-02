@@ -19,6 +19,10 @@ export class BrowserClient {
         return this._sessionId;
     }
 
+    public get ready(): boolean {
+        return this._channel.readyState === "open";
+    }
+
     private constructor(connection: RTCPeerConnection, channel: RTCDataChannel, sessionId: string) {
         this._connection = connection;
         this._channel = channel;
@@ -59,6 +63,11 @@ export class BrowserClient {
             }
         };
         const descriptionType = hosting ? "answer" : "offer";
+        const onDescriptionCreation: (value: RTCSessionDescriptionInit) => any = i => {
+            console.log(`Sending description: ${i.sdp}`);
+            ws.send("Description\n" + i.sdp);
+            connection.setLocalDescription(i);
+        };
         ws.onmessage = ev => {
             const args = (ev.data as string).split('\n');
             switch (args[0]) {
@@ -69,22 +78,12 @@ export class BrowserClient {
                 case "Description":
                     console.log(`Received description: ${args.slice(1, -1).join("\n")}`);
                     connection.setRemoteDescription({ sdp: args.slice(1, -1).join("\n"), type: descriptionType });
-                    if (!hosting) {
-                        connection.createAnswer().then(i => {
-                            console.log(`Sending description: ${i.sdp}`);
-                            ws.send("Description\n" + i.sdp);
-                            connection.setLocalDescription(i);
-                        });
-                    }
+                    if (!hosting)
+                        connection.createAnswer().then(onDescriptionCreation);
                     break;
             }
-            if (args[0] === "ClientJoin" && hosting) {
-                connection.createOffer().then(i => {
-                    console.log(`Sending description: ${i.sdp}`);
-                    ws.send("Description\n" + i.sdp);
-                    connection.setLocalDescription(i);
-                });
-            }
+            if (args[0] === "ClientJoin" && hosting)
+                connection.createOffer().then(onDescriptionCreation);
         };
     }
 

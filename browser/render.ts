@@ -528,7 +528,7 @@ export class BrowserRegion {
         return BrowserRegion.fromAbsolutePositions(Math.min(this.left, other.left), Math.min(this.top, other.top), Math.max(this.right, other.right), Math.max(this.bottom, other.bottom));
     }
 
-    public centerRegion(wx: number, wy: number, percent: number = 0.8): BrowserRegion {
+    public centerRegion(wx: number, wy: number, percent: number = 0.9): BrowserRegion {
         const x = (wx - wx * percent) / 2;
         const y = (wy - wy * percent) / 2;
         wx *= percent;
