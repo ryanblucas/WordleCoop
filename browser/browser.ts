@@ -309,7 +309,7 @@ export class BrowserGameState extends BrowserState {
         }
         ctx.textAlign = "right";
         if (this._currentWordAnimation === undefined || this._currentWordAnimation.renderMessageDuring)
-            ctx.fillText(this._previousMessage, Math.min(this._cellsRegion.x, this._keyboard.region.x) + Math.max(this._cellsRegion.wx, this._keyboard.region.x), 0, 250);
+            ctx.fillText(this._previousMessage, Math.min(this._cellsRegion.x, this._keyboard.region.x) + Math.max(this._cellsRegion.wx, this._keyboard.region.wx), 0, 250);
 
         if (this._game.guidedMode) {
             ctx.textAlign = "left";
