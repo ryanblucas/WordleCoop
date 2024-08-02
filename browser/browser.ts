@@ -311,12 +311,12 @@ export class BrowserGameState extends BrowserState {
                 break;
 
             case BrowserShortcut.HostGame:
+                BrowserClient.host().then(v => console.log(v.sessionId));
+                break;
             case BrowserShortcut.JoinGame:
-                const send = "Testing, should receive this string back";
-                BrowserClient.poll(send).then(v => {
-                    const success = v === send;
-                    console.log(`Sent \"${send}\", received \"${v}\". Success: ${success}.`);
-                });
+                const sessionId = prompt("Session id:");
+                if (sessionId)
+                    BrowserClient.join(sessionId).then(v => console.log(v.sessionId));
                 break;
         }
     }
