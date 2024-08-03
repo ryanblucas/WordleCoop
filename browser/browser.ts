@@ -115,23 +115,30 @@ export class BrowserMenuState extends BrowserState {
  */
 export class BrowserKeyboard {
     private _keys: Array<BrowserRectangle>;
-    private _keysRegion: BrowserRegion;
     private _image: BrowserFramebuffer;
     private _needsInvalidate: boolean;
 
+    private _keysRegion: BrowserRegion;
+    private _adjRegion: BrowserRegion;
+    private _transform: DOMMatrix;
+
     public get region(): BrowserRegion {
-        return new BrowserRegion(this._keysRegion.x, this._keysRegion.y, this._keysRegion.wx, this._keysRegion.wy);
+        return this._adjRegion;
     }
 
-    // TO DO: replace with setter for region
-    public moveUi(x: number, y: number): void {
-        new BrowserUIFactory().moveRegionContents(x, y, [this._keys, this._keysRegion]);
+    public set region(value: BrowserRegion) {
+        this._adjRegion = value;
+        this._transform = new BrowserUIFactory().createTransform(this._keysRegion, this._adjRegion);
+        this._needsInvalidate = true;
     }
 
     public constructor(x: number, y: number) {
-        [this._keys, this._keysRegion] = new BrowserUIFactory().createKeyboard(x, y);
+        [this._keys, this._keysRegion] = new BrowserUIFactory().createKeyboard();
         this._image = new BrowserFramebuffer(1, 1);
         this._needsInvalidate = true;
+
+        this._transform = new DOMMatrix([1, 0, 0, 1, 0, 0]).translate(x, y);
+        this._adjRegion = this._keysRegion.transform(this._transform);
     }
 
     public render(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, delta: number): void {
@@ -139,15 +146,18 @@ export class BrowserKeyboard {
             this._image = new BrowserFramebuffer(ctx.canvas.width, ctx.canvas.height);
             this._needsInvalidate = true;
         }
-        if (this._needsInvalidate || ctx.getTransform() !== this._image.context.getTransform()) {
-            this._image.context.setTransform(ctx.getTransform());
+        const mat4 = ctx.getTransform();
+        if (this._needsInvalidate || mat4 !== this._image.context.getTransform()) {
+            this._image.context.setTransform();
+            this._image.context.clearRect(0, 0, this._image.canvas.width, this._image.canvas.height);
+            this._image.context.setTransform(mat4.multiply(this._transform));
             for (let i = 0; i < this._keys.length; i++)
                 this._keys[i].render(this._image.context, delta);
             this._needsInvalidate = false;
         }
         ctx.setTransform();
         ctx.drawImage(this._image.canvas, 0, 0);
-        ctx.setTransform(this._image.context.getTransform());
+        ctx.setTransform(mat4);
     }
 
     /**
@@ -171,8 +181,9 @@ export class BrowserKeyboard {
      * @returns The character pressed by the user, or an empty string if no character was pressed by the user
      */
     public handleMouseClick(x: number, y: number): string {
+        const pt = this._transform.inverse().transformPoint(new DOMPoint(x, y));
         for (let i = 0; i < this._keys.length; i++) {
-            if (this._keys[i].isPointInRectangle(x, y))
+            if (this._keys[i].isPointInRectangle(pt.x, pt.y))
                 return this._keys[i].text === "\u232B" ? "Backspace" : this._keys[i].text;
         }
         return "";
@@ -184,9 +195,12 @@ export class BrowserKeyboard {
  */
 export class BrowserWordleBoard {
     private _cells: Array<BrowserRectangle>;
-    private _cellsRegion: BrowserRegion;
     private _animations: Array<BrowserCharAnimation>;
     private _currentWordAnimation: BrowserRenderAnimation | undefined;
+
+    private _cellsRegion: BrowserRegion;
+    private _adjRegion: BrowserRegion;
+    private _transform: DOMMatrix;
 
     private _board: WordleBoard;
     public get game(): WordleBoard {
@@ -194,7 +208,12 @@ export class BrowserWordleBoard {
     }
 
     public get region(): BrowserRegion {
-        return new BrowserRegion(this._cellsRegion.x, this._cellsRegion.y, this._cellsRegion.wx, this._cellsRegion.wy);
+        return this._adjRegion;
+    }
+
+    public set region(value: BrowserRegion) {
+        this._adjRegion = value;
+        this._transform = new BrowserUIFactory().createTransform(this._cellsRegion, this._adjRegion);
     }
 
     public get wordAnimation(): BrowserRenderAnimation | undefined {
@@ -205,16 +224,13 @@ export class BrowserWordleBoard {
         this._currentWordAnimation = value;
     }
 
-    // TO DO: replace with setter for region
-    public moveUi(x: number, y: number): void {
-        new BrowserUIFactory().moveRegionContents(x, y, [this._cells, this._cellsRegion]);
-    }
-
     public constructor(board: WordleBoard, x: number, y: number) {
         this._board = board;
-        [this._cells, this._cellsRegion] = new BrowserUIFactory().createCells(this._board, x, y);
-        this._cellsRegion.top = 0;
+        [this._cells, this._cellsRegion] = new BrowserUIFactory().createCells(this._board);
         this._animations = [];
+
+        this._transform = new DOMMatrix([1, 0, 0, 1, 0, 0]).translate(x, y);
+        this._adjRegion = this._cellsRegion.transform(this._transform);
     }
 
     private convert1Dto2D(cellIndex: number): [number, number] {
@@ -265,8 +281,8 @@ export class BrowserWordleBoard {
         if (this._currentWordAnimation)
             this._currentWordAnimation = undefined;
         this._cells[index].text = char.toUpperCase();
-        let anim = new BrowserCharAnimation(this._cells[index], 5, index);
-        let existingIndex = this._animations.findIndex(a => a.id === index);
+        const anim = new BrowserCharAnimation(this._cells[index], 5, index);
+        const existingIndex = this._animations.findIndex(a => a.id === index);
         if (existingIndex !== -1)
             this._animations[existingIndex] = anim;
         else
@@ -287,6 +303,8 @@ export class BrowserWordleBoard {
      */
     public render(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, delta: number): BrowserRenderAnimation | undefined {
         let result: BrowserRenderAnimation | undefined = undefined;
+        const mat4 = ctx.getTransform();
+        ctx.setTransform(mat4.multiply(this._transform));
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
         for (let i = 0; i < this._cells.length; i++) {
@@ -308,6 +326,7 @@ export class BrowserWordleBoard {
             else
                 this._cells[i].render(ctx, delta);
         }
+        ctx.setTransform(mat4);
         return result;
     }
 }
@@ -348,9 +367,9 @@ export class BrowserGameState extends BrowserState {
         const keyboard = new BrowserKeyboard(0, board.region.bottom + 18);
 
         if (board.region.wx < keyboard.region.wx)
-            board.moveUi(keyboard.region.wx / 2 - board.region.wx / 2, 0);
+            board.region = new BrowserRegion(board.region.x + keyboard.region.wx / 2 - board.region.wx / 2, board.region.y, board.region.wx, board.region.wy);
         else
-            keyboard.moveUi(board.region.wx / 2 - keyboard.region.wx / 2, 0);
+            keyboard.region = new BrowserRegion(keyboard.region.x + board.region.wx / 2 - keyboard.region.wx / 2, keyboard.region.y, keyboard.region.wx, keyboard.region.wy);
 
         return [board, keyboard, new BrowserRectangle(0, 0, creator.measureText("bold 24px \"Verdana\"", "MENU")[0], 24, { text: "MENU", font: "bold 24px \"Verdana\"" }),
             creator.createTransform(board.region.merge(keyboard.region), board.region.merge(keyboard.region).centerRegion(this._wx, this._wy))];

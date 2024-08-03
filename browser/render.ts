@@ -623,13 +623,6 @@ export class BrowserUIFactory {
         return [result, region];
     }
 
-    public moveRegionContents(x: number, y: number, tuple: [Array<BrowserRectangle>, BrowserRegion]): [Array<BrowserRectangle>, BrowserRegion] {
-        tuple[0].forEach(v => { v.x += x; v.y += y })
-        tuple[1].x += x;
-        tuple[1].y += y;
-        return tuple;
-    }
-
     /**
      * Measures str's width and height in font.
      * @param font Font to measure in
@@ -668,6 +661,8 @@ export class BrowserUIFactory {
     }
 
     public createTransform(from: BrowserRegion, to: BrowserRegion): DOMMatrix {
-        return new DOMMatrix([1, 0, 0, 1, 0, 0]).translate(to.x - from.x, to.y - from.y).scale(to.wx / from.wx, to.wy / from.wy);
+        const dax = from.right - from.left, dbx = to.right - to.left;
+        const day = from.bottom - from.top, dby = to.bottom - to.top;
+        return new DOMMatrix([dbx / dax, 0, 0, dby / day, -from.left * dbx / dax + to.left, -from.top * dby / day + to.top]);
     }
 }
