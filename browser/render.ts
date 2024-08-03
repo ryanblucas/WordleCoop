@@ -449,6 +449,10 @@ export class BrowserRectangle extends BrowserRenderTarget {
         this.wy = value - this.y;
     }
 
+    public get region(): BrowserRegion {
+        return new BrowserRegion(this.x, this.y, this.wx, this.wy);
+    }
+
     public isPointInRectangle(x: number, y: number): boolean {
         return this.left < x && this.top < y && this.right > x && this.bottom > y
     }

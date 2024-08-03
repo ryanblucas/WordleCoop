@@ -358,6 +358,14 @@ export class BrowserGameState extends BrowserState {
     }
 
     /**
+     * Region encompassing all components of this state.
+     * This gets calculated every time it is called and it is not centered.
+     */
+    public get region(): BrowserRegion {
+        return this._board.region.merge(this._keyboard.region).merge(this._menuButton.region);
+    }
+
+    /**
      * Clears UI state to new board
      * @returns Cells, cell region, keyboard, MENU button, and the transform in that order.
      */
@@ -365,14 +373,15 @@ export class BrowserGameState extends BrowserState {
         const creator = new BrowserUIFactory();
         const board = new BrowserWordleBoard(this._game.board, 0, 28);
         const keyboard = new BrowserKeyboard(0, board.region.bottom + 18);
+        const menuButton = new BrowserRectangle(0, 0, creator.measureText("bold 24px \"Verdana\"", "MENU")[0], 24, { text: "MENU", font: "bold 24px \"Verdana\"" });
 
         if (board.region.wx < keyboard.region.wx)
             board.region = new BrowserRegion(board.region.x + keyboard.region.wx / 2 - board.region.wx / 2, board.region.y, board.region.wx, board.region.wy);
         else
             keyboard.region = new BrowserRegion(keyboard.region.x + board.region.wx / 2 - keyboard.region.wx / 2, keyboard.region.y, keyboard.region.wx, keyboard.region.wy);
 
-        return [board, keyboard, new BrowserRectangle(0, 0, creator.measureText("bold 24px \"Verdana\"", "MENU")[0], 24, { text: "MENU", font: "bold 24px \"Verdana\"" }),
-            creator.createTransform(board.region.merge(keyboard.region), board.region.merge(keyboard.region).centerRegion(this._wx, this._wy))];
+        const finalRegion = board.region.merge(keyboard.region).merge(menuButton.region);
+        return [board, keyboard, menuButton, creator.createTransform(finalRegion, finalRegion.centerRegion(this._wx, this._wy))];
     }
 
     public constructor(word: string = "") {
@@ -428,7 +437,7 @@ export class BrowserGameState extends BrowserState {
     }
 
     public handleResize(wx: number, wy: number): void {
-        const target = this._board.region.merge(this._keyboard.region);
+        const target = this.region;
         this._transform = new BrowserUIFactory().createTransform(target, target.centerRegion(this._wx = wx, this._wy = wy));
         this._popMessage = true;
     }
