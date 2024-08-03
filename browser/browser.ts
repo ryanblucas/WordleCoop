@@ -153,6 +153,7 @@ export class BrowserKeyboard {
             this._image.context.setTransform(mat4.multiply(this._transform));
             for (let i = 0; i < this._keys.length; i++)
                 this._keys[i].render(this._image.context, delta);
+            this._image.context.setTransform(mat4);
             this._needsInvalidate = false;
         }
         ctx.setTransform();
@@ -194,6 +195,9 @@ export class BrowserKeyboard {
  * Represents the game's character board and its UI
  */
 export class BrowserWordleBoard {
+    private _image: BrowserFramebuffer;
+    private _needsInvalidate: boolean;
+
     private _cells: Array<BrowserRectangle>;
     private _animations: Array<BrowserCharAnimation>;
     private _currentWordAnimation: BrowserRenderAnimation | undefined;
@@ -222,12 +226,15 @@ export class BrowserWordleBoard {
 
     public set wordAnimation(value: BrowserRenderAnimation | undefined) {
         this._currentWordAnimation = value;
+        this._needsInvalidate = true;
     }
 
     public constructor(board: WordleBoard, x: number, y: number) {
         this._board = board;
         [this._cells, this._cellsRegion] = new BrowserUIFactory().createCells(this._board);
         this._animations = [];
+        this._image = new BrowserFramebuffer(1, 1);
+        this._needsInvalidate = true;
 
         this._transform = new DOMMatrix([1, 0, 0, 1, 0, 0]).translate(x, y);
         this._adjRegion = this._cellsRegion.transform(this._transform);
@@ -303,29 +310,41 @@ export class BrowserWordleBoard {
      */
     public render(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, delta: number): BrowserRenderAnimation | undefined {
         let result: BrowserRenderAnimation | undefined = undefined;
-        const mat4 = ctx.getTransform();
-        ctx.setTransform(mat4.multiply(this._transform));
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        for (let i = 0; i < this._cells.length; i++) {
-            let animationIndex = this._animations.findIndex(v => v.id === i);
-            if (this._currentWordAnimation !== undefined && this.convert1Dto2D(i)[0] === this._currentWordAnimation.id) {
-                result = this._currentWordAnimation;
-                this._currentWordAnimation.render(ctx, delta);
-                i += this._board.totalCharacterCount - 1;
-                if (this._currentWordAnimation.isDone())
-                    this._currentWordAnimation = undefined;
-            }
-            else if (animationIndex !== -1) {
-                if (result !== this._currentWordAnimation)
-                    result = this._animations[animationIndex];
-                this._animations[animationIndex].render(ctx, delta);
-                if (this._animations[animationIndex].isDone())
-                    this._animations.splice(animationIndex, 1);
-            }
-            else
-                this._cells[i].render(ctx, delta);
+        if (ctx.canvas.width !== this._image.canvas.width || ctx.canvas.height !== this._image.canvas.height) {
+            this._image = new BrowserFramebuffer(ctx.canvas.width, ctx.canvas.height);
+            this._needsInvalidate = true;
         }
+        const mat4 = ctx.getTransform();
+        if (this._needsInvalidate || mat4 !== this._image.context.getTransform()) {
+            this._image.context.setTransform();
+            this._image.context.clearRect(0, 0, this._image.canvas.width, this._image.canvas.height);
+            this._image.context.setTransform(mat4.multiply(this._transform));
+            this._image.context.textAlign = "center";
+            this._image.context.textBaseline = "middle";
+            for (let i = 0; i < this._cells.length; i++) {
+                let animationIndex = this._animations.findIndex(v => v.id === i);
+                if (this._currentWordAnimation !== undefined && this.convert1Dto2D(i)[0] === this._currentWordAnimation.id) {
+                    result = this._currentWordAnimation;
+                    this._currentWordAnimation.render(this._image.context, delta);
+                    i += this._board.totalCharacterCount - 1;
+                    if (this._currentWordAnimation.isDone())
+                        this._currentWordAnimation = undefined;
+                }
+                else if (animationIndex !== -1) {
+                    if (result !== this._currentWordAnimation)
+                        result = this._animations[animationIndex];
+                    this._animations[animationIndex].render(this._image.context, delta);
+                    if (this._animations[animationIndex].isDone())
+                        this._animations.splice(animationIndex, 1);
+                }
+                else
+                    this._cells[i].render(this._image.context, delta);
+            }
+            this._image.context.setTransform(mat4);
+            this._needsInvalidate = this.wordAnimation !== undefined || this._animations.length !== 0;
+        }
+        ctx.setTransform();
+        ctx.drawImage(this._image.canvas, 0, 0);
         ctx.setTransform(mat4);
         return result;
     }
@@ -416,6 +435,8 @@ export class BrowserGameState extends BrowserState {
                 this._board.wordAnimation = new BrowserWinAnimation(this._board.wordAt(anim.id), anim.id);
         }
         this._keyboard.render(ctx, delta);
+        // what's its problem? it doesn't render at the right place but when you actually go in the menu, the blurred background
+        // renders the button properly? taking components out of the render didn't fix anything.
         this._menuButton.render(ctx, delta);
 
         if (this._popMessage) {
