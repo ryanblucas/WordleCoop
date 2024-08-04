@@ -435,8 +435,8 @@ export class BrowserGameState extends BrowserState {
                 this._board.wordAnimation = new BrowserWinAnimation(this._board.wordAt(anim.id), anim.id);
         }
         this._keyboard.render(ctx, delta);
-        // what's its problem? it doesn't render at the right place but when you actually go in the menu, the blurred background
-        // renders the button properly? taking components out of the render didn't fix anything.
+        ctx.textBaseline = "middle";
+        ctx.textAlign = "center";
         this._menuButton.render(ctx, delta);
 
         if (this._popMessage) {
