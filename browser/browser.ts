@@ -160,19 +160,16 @@ export class BrowserKeyboard {
         ctx.drawImage(this._image.canvas, 0, 0);
         ctx.setTransform(mat4);
     }
-
-    /**
-     * Updates keyboard with the states found in word's characters
-     * @param word The word to update the keyboard
-     */
-    public syncWordResult(word: WordleWord): void {
-        word.word.forEach(i => {
-            let key = this._keys.find(j => j.text.toLowerCase() === i.character.toLowerCase());
-            if (key && key.styleList.indexOf(key.style) < i.state) {
-                key.style = key.styleList[i.state];
-            }
-        });
-        this._needsInvalidate = true;
+    
+    public getCharRectangle(character: string): BrowserRectangle {
+        character = character.toLowerCase();
+        character = character === "backspace" ? "\u232B" : character;
+        const realResult = this._keys.find(v => v.text === character);
+        if (!realResult) {
+            console.log("Invalid character \"" + character + "\" passed to getCharRectangle, defaulting to blank rectangle.");
+            return new BrowserRectangle(0, 0, 1, 1);
+        }
+        return realResult;
     }
 
     /**
@@ -224,8 +221,17 @@ export class BrowserWordleBoard {
         return this._currentWordAnimation;
     }
 
-    public set wordAnimation(value: BrowserRenderAnimation | undefined) {
+    public setWordAnimationAt(value: BrowserRenderAnimation | undefined, wordIndex: number): void {
         this._currentWordAnimation = value;
+        if (value) {
+            value.id = wordIndex;
+            this._needsInvalidate = true;
+        }
+    }
+
+    public addCharAnimation(anim: BrowserCharAnimation, wordIndex: number, charIndex: number): void {
+        anim.id = wordIndex * this._board.totalCharacterCount + charIndex;
+        this._animations.push(anim);
         this._needsInvalidate = true;
     }
 
@@ -240,60 +246,45 @@ export class BrowserWordleBoard {
         this._adjRegion = this._cellsRegion.transform(this._transform);
     }
 
-    private convert1Dto2D(cellIndex: number): [number, number] {
-        return [Math.floor(cellIndex / this._board.totalCharacterCount), cellIndex % this._board.totalCharacterCount];
-    }
-
-    private convert2Dto1D(wordIndex: number, charIndex: number): number {
-        return wordIndex * this._board.totalCharacterCount + charIndex;
-    }
-
     public cellAt(wordIndex: number, charIndex: number): BrowserRectangle {
-        return this._cells[this.convert2Dto1D(wordIndex, charIndex)];
+        return this._cells[wordIndex * this._board.totalCharacterCount + charIndex];
     }
 
     public wordAt(wordIndex: number): Array<BrowserRectangle> {
-        return this._cells.slice(this.convert2Dto1D(wordIndex, 0), this.convert2Dto1D(wordIndex, this._board.totalCharacterCount));
+        return this._cells.slice(wordIndex * this._board.totalCharacterCount, (wordIndex + 1) * this._board.totalCharacterCount);
     }
 
     public syncBoardIndex(wordIndex: number, charIndex: number): void {
         this.cellAt(wordIndex, charIndex).text = this._board.data[wordIndex].word[charIndex].character.toUpperCase();
     }
 
-    public colorWord(wordIndex: number): number {
-        let result = 0;
-        this._board.data[wordIndex].word.forEach((v, i) => {
-            const cell = this._cells[this.convert2Dto1D(wordIndex, i)];
-            cell.style = cell.styleList[v.state];
-            result += v.state;
-        });
-        return result;
-    }
-
     public updateWordAndAnimation(previousIndex: number, success: boolean): void {
         const index = previousIndex * this._board.totalCharacterCount;
         let previous = new BrowserUIFactory().createWord(this._board.data[previousIndex], this._cells[index].x, this._cells[index].y)[0];
-        this._animations = this._animations.filter(v => this.convert1Dto2D(v.id)[0] !== previousIndex);
+        this._animations = this._animations.filter(v => Math.floor(v.id / this._board.totalCharacterCount) !== previousIndex);
 
         if (success) {
-            this._currentWordAnimation = new BrowserWordAnimation(previous, this._cells.slice(index, index + this._board.totalCharacterCount), previousIndex);
-            this.colorWord(previousIndex);
+            this.setWordAnimationAt(new BrowserWordAnimation(previous, this._cells.slice(index, index + this._board.totalCharacterCount)), previousIndex);
+            this._board.data[previousIndex].word.forEach((v, i) => {
+                const cell = this.cellAt(previousIndex, i);
+                cell.style = cell.styleList[v.state];
+            });
         }
         else
-            this._currentWordAnimation = new BrowserShakeAnimation(previous, previousIndex);
+            this.setWordAnimationAt(new BrowserShakeAnimation(previous, previousIndex), previousIndex);
     }
 
     public updateCharAndAnimation(char: string, wordIndex: number, charIndex: number): void {
-        const index = this.convert2Dto1D(wordIndex, charIndex);
+        const index = wordIndex * this._board.totalCharacterCount + charIndex;
         if (this._currentWordAnimation)
             this._currentWordAnimation = undefined;
         this._cells[index].text = char.toUpperCase();
-        const anim = new BrowserCharAnimation(this._cells[index], 5, index);
+        const anim = new BrowserCharAnimation(this._cells[index], 5);
         const existingIndex = this._animations.findIndex(a => a.id === index);
         if (existingIndex !== -1)
             this._animations[existingIndex] = anim;
         else
-            this._animations.push(anim);
+            this.addCharAnimation(anim, wordIndex, charIndex);
     }
 
     public handlePopCharacter(): void {
@@ -304,32 +295,31 @@ export class BrowserWordleBoard {
 
     /**
      * Renders game board to ctx, using delta parameter
-     * @param ctx Canvas to render to. Only changes textAlign and textBaseline properties, transform passed prior (if passed at all) is used.
+     * @param ctx Canvas to render to. Transform in use prior is conserved.
      * @param delta Time in milliseconds since the last render
      * @returns Word then char animation that was used
      */
     public render(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, delta: number): BrowserRenderAnimation | undefined {
-        let result: BrowserRenderAnimation | undefined = undefined;
         if (ctx.canvas.width !== this._image.canvas.width || ctx.canvas.height !== this._image.canvas.height) {
             this._image = new BrowserFramebuffer(ctx.canvas.width, ctx.canvas.height);
             this._needsInvalidate = true;
         }
+
         const mat4 = ctx.getTransform();
+        let result: BrowserRenderAnimation | undefined = undefined;
         if (this._needsInvalidate || mat4 !== this._image.context.getTransform()) {
-            this._image.context.setTransform();
-            this._image.context.clearRect(0, 0, this._image.canvas.width, this._image.canvas.height);
             this._image.context.setTransform(mat4.multiply(this._transform));
             this._image.context.textAlign = "center";
             this._image.context.textBaseline = "middle";
             for (let i = 0; i < this._cells.length; i++) {
                 let animationIndex = this._animations.findIndex(v => v.id === i);
-                if (this._currentWordAnimation !== undefined && this.convert1Dto2D(i)[0] === this._currentWordAnimation.id) {
+                if (this._currentWordAnimation !== undefined && Math.floor(i / this._board.totalCharacterCount) === this._currentWordAnimation.id) {
                     result = this._currentWordAnimation;
                     this._currentWordAnimation.render(this._image.context, delta);
                     i += this._board.totalCharacterCount - 1;
                     if (this._currentWordAnimation.isDone())
                         this._currentWordAnimation = undefined;
-                }
+                    }
                 else if (animationIndex !== -1) {
                     if (result !== this._currentWordAnimation)
                         result = this._animations[animationIndex];
@@ -419,7 +409,7 @@ export class BrowserGameState extends BrowserState {
             cell.style = cell.styleList[WordleCharacterState.Green];
             cell.text = this._game.board.targetWord[i].toUpperCase();
         }
-        this._board.wordAnimation = new BrowserShakeAnimation(this._board.wordAt(this._game.board.currentWordIndex), this._game.board.currentWordIndex);
+        this._board.setWordAnimationAt(new BrowserShakeAnimation(this._board.wordAt(this._game.board.currentWordIndex)), this._game.board.currentWordIndex);
     }
 
     public render(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, delta: number): void {
@@ -430,9 +420,12 @@ export class BrowserGameState extends BrowserState {
 
         const anim = this._board.render(ctx, delta);
         if (anim && anim.isDone()) {
-            this._keyboard.syncWordResult(this._game.board.data[anim.id]);
+            this._game.board.data[anim.id].word.forEach(v => {
+                const rect = this._keyboard.getCharRectangle(v.character);
+                rect.style = rect.styleList[v.state];
+            });
             if (this._game.isWon() && anim.constructor.name !== "BrowserWinAnimation")
-                this._board.wordAnimation = new BrowserWinAnimation(this._board.wordAt(anim.id), anim.id);
+                this._board.setWordAnimationAt(new BrowserWinAnimation(this._board.wordAt(anim.id)), anim.id);
         }
         this._keyboard.render(ctx, delta);
         ctx.textBaseline = "middle";
