@@ -231,7 +231,11 @@ export class BrowserWordleBoard {
 
     public addCharAnimation(anim: BrowserCharAnimation, wordIndex: number, charIndex: number): void {
         anim.id = wordIndex * this._board.totalCharacterCount + charIndex;
-        this._animations.push(anim);
+        const existsIndex = this._animations.findIndex(v => v.id == anim.id);
+        if (existsIndex !== -1)
+            this._animations[existsIndex] = anim;
+        else
+            this._animations.push(anim);
         this._needsInvalidate = true;
     }
 
@@ -275,22 +279,10 @@ export class BrowserWordleBoard {
     }
 
     public updateCharAndAnimation(char: string, wordIndex: number, charIndex: number): void {
-        const index = wordIndex * this._board.totalCharacterCount + charIndex;
         if (this._currentWordAnimation)
             this._currentWordAnimation = undefined;
-        this._cells[index].text = char.toUpperCase();
-        const anim = new BrowserCharAnimation(this._cells[index], 5);
-        const existingIndex = this._animations.findIndex(a => a.id === index);
-        if (existingIndex !== -1)
-            this._animations[existingIndex] = anim;
-        else
-            this.addCharAnimation(anim, wordIndex, charIndex);
-    }
-
-    public handlePopCharacter(): void {
-        if (this._currentWordAnimation)
-            this._currentWordAnimation = undefined;
-        this.syncBoardIndex(this._board.currentWordIndex, this._board.currentCharacterIndex);
+        this.cellAt(wordIndex, charIndex).text = char.toUpperCase();
+        this.addCharAnimation(new BrowserCharAnimation(this.cellAt(wordIndex, charIndex), 5), wordIndex, charIndex);
     }
 
     /**
@@ -308,6 +300,8 @@ export class BrowserWordleBoard {
         const mat4 = ctx.getTransform();
         let result: BrowserRenderAnimation | undefined = undefined;
         if (this._needsInvalidate || mat4 !== this._image.context.getTransform()) {
+            this._image.context.setTransform();
+            this._image.context.clearRect(0, 0, this._image.canvas.width, this._image.canvas.height);
             this._image.context.setTransform(mat4.multiply(this._transform));
             this._image.context.textAlign = "center";
             this._image.context.textBaseline = "middle";
@@ -422,7 +416,8 @@ export class BrowserGameState extends BrowserState {
         if (anim && anim.isDone()) {
             this._game.board.data[anim.id].word.forEach(v => {
                 const rect = this._keyboard.getCharRectangle(v.character);
-                rect.style = rect.styleList[v.state];
+                if (v.state > rect.styleList.indexOf(rect.style))
+                    rect.style = rect.styleList[v.state];
             });
             if (this._game.isWon() && anim.constructor.name !== "BrowserWinAnimation")
                 this._board.setWordAnimationAt(new BrowserWinAnimation(this._board.wordAt(anim.id)), anim.id);
@@ -532,7 +527,7 @@ export class BrowserGameState extends BrowserState {
             this._board.updateWordAndAnimation(this._game.board.currentWordIndex, this._game.onPushWord());
         else if (lowerInput === "backspace") {
             this._game.onPopCharacter();
-            this._board.handlePopCharacter();
+            this._board.cellAt(this._game.board.currentWordIndex, this._game.board.currentCharacterIndex).text = "";
         }
         else if (lowerInput.length === 1 && /^[a-z]+$/.test(lowerInput))
             this.handlePushCharacter(input);
