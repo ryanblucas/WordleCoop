@@ -364,126 +364,138 @@ export class BrowserWordleBoard extends BrowserRenderTarget {
     }
 }
 
-export class BrowserSingleplayerState extends BrowserState {
-    private _transform: DOMMatrix;
-    private _keyboard: BrowserKeyboard;
-    private _board: BrowserWordleBoard;
-    private _game: WordleGame;
-    private _menuButton: BrowserRectangle;
-    private _message: string = "";
-    private _messagePos: number;
+export abstract class BrowserGameState extends BrowserState {
+    protected transform: DOMMatrix;
+    protected keyboard: BrowserKeyboard;
+    protected board: BrowserWordleBoard;
+    protected game: WordleGame;
+    protected menuButton: BrowserRectangle;
+    protected message: string = "";
+    protected messagePos: number;
 
-    private _region: BrowserRegion;
-    private _wx: number = 1;
-    private _wy: number = 1;
+    protected region: BrowserRegion;
+    protected wx: number = 1;
+    protected wy: number = 1;
 
-    private _nextState: BrowserState | undefined;
+    protected nextState: BrowserState | undefined;
 
-    private centerKeyboardAndBoard(): void {
-        if (this._board.region.wx < this._keyboard.region.wx)
-            this._board.region = new BrowserRegion(this._board.region.x + this._keyboard.region.wx / 2 - this._board.region.wx / 2, this._board.region.y, this._board.region.wx, this._board.region.wy);
+    protected createInterface(): void {
+        this.board = new BrowserWordleBoard(0, 28, this.game.board.totalWordCount, this.game.board.totalCharacterCount);
+        this.keyboard = new BrowserKeyboard(0, this.board.region.bottom + 18);
+        if (this.board.region.wx < this.keyboard.region.wx)
+            this.board.region = new BrowserRegion(this.board.region.x + this.keyboard.region.wx / 2 - this.board.region.wx / 2, this.board.region.y, this.board.region.wx, this.board.region.wy);
         else
-            this._keyboard.region = new BrowserRegion(this._keyboard.region.x + this._board.region.wx / 2 - this._keyboard.region.wx / 2, this._keyboard.region.y, this._keyboard.region.wx, this._keyboard.region.wy);
+            this.keyboard.region = new BrowserRegion(this.keyboard.region.x + this.board.region.wx / 2 - this.keyboard.region.wx / 2, this.keyboard.region.y, this.keyboard.region.wx, this.keyboard.region.wy);
+        this.messagePos = Math.min(this.board.region.x, this.keyboard.region.x) + Math.max(this.board.region.wx, this.keyboard.region.wx);
+        this.menuButton = new BrowserRectangle(0, 0, new BrowserUIFactory().measureText("bold 24px \"Verdana\"", "MENU")[0], 24, { text: "MENU", font: "bold 24px \"Verdana\"" });
+        this.region = this.board.region.merge(this.keyboard.region).merge(this.menuButton.region);
+        this.transform = new BrowserUIFactory().createTransform(this.region, this.region.centerRegion(this.wx, this.wy));
     }
 
     public constructor() {
         super();
-        this._game = new WordleGame();
+        this.game = new WordleGame();
 
-        this._board = new BrowserWordleBoard(0, 28, this._game.board.totalWordCount, this._game.board.totalCharacterCount);
-        this._keyboard = new BrowserKeyboard(0, this._board.region.bottom + 18);
-        this.centerKeyboardAndBoard();
-        
-        this._messagePos = Math.min(this._board.region.x, this._keyboard.region.x) + Math.max(this._board.region.wx, this._keyboard.region.wx);
-        this._menuButton = new BrowserRectangle(0, 0, new BrowserUIFactory().measureText("bold 24px \"Verdana\"", "MENU")[0], 24, { text: "MENU", font: "bold 24px \"Verdana\"" }); 
-        this._region = this._board.region.merge(this._keyboard.region).merge(this._menuButton.region);
-        this._transform = new BrowserUIFactory().createTransform(this._region, this._region.centerRegion(this._wx, this._wy));
+        // -- mandatory for TypeScript
+        this.transform = new DOMMatrix();
+        this.keyboard = new BrowserKeyboard(0, 0);
+        this.board = new BrowserWordleBoard(0, 0, 0, 0);
+        this.menuButton = new BrowserRectangle(0, 0, 0, 0);
+        this.messagePos = 0;
+        this.region = new BrowserRegion(0, 0, 0, 0);
+        // --
+
+        this.createInterface();
     }
 
     public hasQueuedState(): boolean {
-        return !!this._nextState;
+        return !!this.nextState;
     }
 
     public popQueuedState(): BrowserState | undefined {
-        const state = this._nextState;
-        this._nextState = undefined;
+        const state = this.nextState;
+        this.nextState = undefined;
         return state;
     }
 
     public handleResize(wx: number, wy: number): void {
-        this._transform = new BrowserUIFactory().createTransform(this._region, this._region.centerRegion(this._wx = wx, this._wy = wy));
+        this.transform = new BrowserUIFactory().createTransform(this.region, this.region.centerRegion(this.wx = wx, this.wy = wy));
     }
 
     public handleMouseClick(x: number, y: number): void {
-        const transformed = this._transform.inverse().transformPoint(new DOMPoint(x, y));
+        const transformed = this.transform.inverse().transformPoint(new DOMPoint(x, y));
         x = transformed.x;
         y = transformed.y;
-        this._keyboard.handleMouseClick(x, y);
-        if (this._menuButton.isPointInRectangle(x, y))
-            this._nextState = new BrowserMenuState(this);
+        this.keyboard.handleMouseClick(x, y);
+        if (this.menuButton.isPointInRectangle(x, y))
+            this.nextState = new BrowserMenuState(this);
     }
 
     public handleKeyClick(input: string): void {
-        this._keyboard.handleKeyClick(input);
+        this.keyboard.handleKeyClick(input);
     }
 
-    private _changeUiAt: number = -1;
+    protected abstract update(): void;
+
     public render(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, delta: number): void {
-        const key = this._keyboard.getCurrentKey();
-        if (key !== "" && this._board.wordAnimation.isDone()) {
-            if (this._game.startQueuedGame()) {
-                this._board = new BrowserWordleBoard(0, 28, this._game.board.totalWordCount, this._game.board.totalCharacterCount);
-                this._keyboard = new BrowserKeyboard(0, this._board.region.bottom + 18);
-                this.centerKeyboardAndBoard();
-                this._region = this._board.region.merge(this._keyboard.region).merge(this._menuButton.region);
-                this._transform = new BrowserUIFactory().createTransform(this._region, this._region.centerRegion(this._wx, this._wy));
-            }
-            this._changeUiAt = this._game.board.currentWordIndex;
-            if (key === "Enter") {
-                const start = this._game.board.currentWordIndex;
-                this._game.onPushWord();
-                this._board.setWord(start, this._game.board.data[start].word);
-            }
-            else if (key === "Backspace") {
-                this._game.onPopCharacter();
-                this._board.setCharacter(this._game.board.currentWordIndex, this._game.board.currentCharacterIndex, ' ');
-            }
-            else {
-                this._board.setCharacter(this._game.board.currentWordIndex, this._game.board.currentCharacterIndex, key);
-                this._game.onPushCharacter(key);
-            }
-        }
+        this.update();
 
         ctx.resetTransform();
         ctx.fillStyle = "white";
         ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-        ctx.setTransform(this._transform);
+        ctx.setTransform(this.transform);
 
-        this._board.render(ctx, delta);
-        this._keyboard.render(ctx, delta);
+        this.board.render(ctx, delta);
+        this.keyboard.render(ctx, delta);
 
         ctx.textBaseline = "middle";
         ctx.textAlign = "center";
-        this._menuButton.render(ctx, delta);
+        this.menuButton.render(ctx, delta);
 
-        if (this._changeUiAt !== -1 && this._board.wordAnimation.renderMessageDuring) {
-            this._message = this._game.popMessage();
-            this._game.board.data[this._changeUiAt].word.forEach(v => {
-                const cell = this._keyboard.getCharRectangle(v.character);
+        ctx.font = "24px Sans-serif";
+        ctx.textBaseline = "top";
+        ctx.textAlign = "right";
+        ctx.fillText(this.message, this.messagePos, 0, 250);
+
+        if (this.game.guidedMode) {
+            ctx.textAlign = "left";
+            ctx.font = "10px Sans-Serif";
+            ctx.fillText("Guided mode -- Shift+T to toggle", 0, this.board.region.bottom + 4);
+        }
+    }
+}
+
+export class BrowserSingleplayerState extends BrowserGameState {
+    private _changeUiAt: number = -1;
+    protected update(): void {
+        const key = this.keyboard.getCurrentKey();
+        if (key !== "" && this.board.wordAnimation.isDone()) {
+            if (this.game.startQueuedGame())
+                this.createInterface();
+            this._changeUiAt = this.game.board.currentWordIndex;
+            if (key === "Enter") {
+                const start = this.game.board.currentWordIndex;
+                this.game.onPushWord();
+                this.board.setWord(start, this.game.board.data[start].word);
+            }
+            else if (key === "Backspace") {
+                this.game.onPopCharacter();
+                this.board.setCharacter(this.game.board.currentWordIndex, this.game.board.currentCharacterIndex, ' ');
+            }
+            else {
+                this.board.setCharacter(this.game.board.currentWordIndex, this.game.board.currentCharacterIndex, key);
+                this.game.onPushCharacter(key);
+            }
+        }
+
+        if (this._changeUiAt !== -1 && this.board.wordAnimation.renderMessageDuring) {
+            this.message = this.game.popMessage();
+            this.game.board.data[this._changeUiAt].word.forEach(v => {
+                const cell = this.keyboard.getCharRectangle(v.character);
                 if (cell.styleList.indexOf(cell.style) < v.state)
                     cell.style = cell.styleList[v.state];
             });
             this._changeUiAt = -1;
-        }
-        ctx.font = "24px Sans-serif";
-        ctx.textBaseline = "top";
-        ctx.textAlign = "right";
-        ctx.fillText(this._message, this._messagePos, 0, 250);
-
-        if (this._game.guidedMode) {
-            ctx.textAlign = "left";
-            ctx.font = "10px Sans-Serif";
-            ctx.fillText("Guided mode -- Shift+T to toggle", 0, this._board.region.bottom + 4);
         }
     }
 }
