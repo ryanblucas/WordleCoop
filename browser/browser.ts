@@ -4,6 +4,7 @@
 //  Browser backend for Wordle Coop
 //
 
+import { connect } from "tls";
 import { BrowserClient } from "../coop.js";
 import { WordleCharacter, WordleCharacterState, WordleGame } from "../wordle.js";
 import { WordListManager } from "../wordList.js";
@@ -34,6 +35,7 @@ enum BrowserShortcut {
     GiveUp = 'G',
     JoinGame = 'J',
     HostGame = 'H',
+    Singleplayer = 'P',
 }
 
 export class BrowserMenuState extends BrowserState {
@@ -199,13 +201,6 @@ export class BrowserKeyboard extends BrowserRenderTarget implements BrowserMouse
     public getCurrentKey(): string {
         return this._currentKey;
     }
-}
-
-export enum BrowserAction {
-    PushCharacter,
-    PushWord,
-    ShakeWord,
-    PopCharacter,
 }
 
 /**
@@ -510,13 +505,21 @@ export class BrowserSingleplayerState extends BrowserGameState {
                 this.game.giveUp();
                 break;
 
-            case BrowserShortcut.HostGame:
-                BrowserClient.host().then(v => console.log(v.sessionId));
+            case BrowserShortcut.Singleplayer:
+                this.nextState = new BrowserSingleplayerState();
                 break;
+
+            case BrowserShortcut.HostGame:
+                BrowserClient.host().then(i => {
+                    this.nextState = new BrowserWaitingState(i.tillReady().then(j => new BrowserCoopState(j)), this);
+                    prompt("Session id:", i.sessionId);
+                });
+                break;
+
             case BrowserShortcut.JoinGame:
                 const sessionId = prompt("Session id:");
                 if (sessionId)
-                    BrowserClient.join(sessionId).then(v => console.log(v.sessionId));
+                    BrowserClient.join(sessionId).then(i => this.nextState = new BrowserWaitingState(i.tillReady().then(j => new BrowserCoopState(j)), this));
                 break;
         }
     }
@@ -551,6 +554,81 @@ export class BrowserSingleplayerState extends BrowserGameState {
             });
             this._changeUiAt = -1;
         }
+    }
+}
+
+/**
+ * Blurs background, displays text and waits for promise to resolve and return the next state.
+ */
+export class BrowserWaitingState extends BrowserState {
+    private _promise: Promise<BrowserState>;
+    private _prevState: BrowserState;
+    private _text: string;
+    private _nextState: BrowserState | undefined;
+
+    private _background: BrowserFramebuffer;
+
+    public constructor(promise: Promise<BrowserState>, prevState: BrowserState, text: string = "Waiting...") {
+        super();
+        this._promise = promise;
+        this._prevState = prevState;
+        this._text = text;
+
+        this._background = new BrowserFramebuffer(1, 1);
+        this._promise.then(v => this._nextState = v);
+        this._promise.catch(v => this._nextState = this._prevState);
+    }
+
+    public hasQueuedState(): boolean {
+        return !!this._nextState;
+    }
+
+    public popQueuedState(): BrowserState | undefined {
+        return this._nextState;
+    }
+
+    public handleResize(wx: number, wy: number): void {
+        this._background.resize(wx, wy);
+        const unblurred = new BrowserFramebuffer(wx, wy);
+        this._prevState.render(unblurred.context, 0.0);
+        this._background.context.filter = "blur(2px)";
+        this._background.context.drawImage(unblurred.canvas, 0, 0);
+    }
+
+    public handleMouseClick(x: number, y: number): void {
+
+    }
+
+    public handleKeyClick(input: string): void {
+        if (input === "Escape") { // TO DO: alert the previous state/promise that this happened?
+            console.log("User prompted for loading state to fall back!");
+            this._nextState = this._prevState;
+        }
+    }
+
+    public render(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, delta: number): void {
+        ctx.setTransform();
+        ctx.drawImage(this._background.canvas, 0, 0);
+        ctx.font = "32px Sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(this._text, this._background.canvas.width / 2, this._background.canvas.height / 2, this._background.canvas.width - 32);
+    }
+}
+
+export class BrowserCoopState extends BrowserGameState {
+    private _connection: BrowserClient;
+
+    public constructor(connection: BrowserClient) {
+        super();
+        this._connection = connection;
+        console.log("Connected to session: " + connection.sessionId + ".");
+    }
+
+    protected update(): void {
+    }
+
+    protected shortcut(shortcut: BrowserShortcut): void {
     }
 }
 

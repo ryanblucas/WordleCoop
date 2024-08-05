@@ -19,8 +19,11 @@ export class BrowserClient {
         return this._sessionId;
     }
 
-    public get ready(): boolean {
-        return this._channel.readyState === "open";
+    public tillReady(): Promise<BrowserClient> {
+        if (this._channel.readyState === "open")
+            return Promise.resolve(this);
+        const res = new Promise<BrowserClient>(e => this._channel.addEventListener("open", v => e(this)));
+        return res;
     }
 
     private constructor(connection: RTCPeerConnection, channel: RTCDataChannel, sessionId: string) {
@@ -52,6 +55,7 @@ export class BrowserClient {
     }
 
     private static createSignalLoop(connection: RTCPeerConnection, ws: WebSocket, hosting: boolean): void {
+    // TO DO: add error handler for when the websocket disconnects or when the other user disconnects.
         connection.onicecandidate = ev => {
             if (!ev.candidate) {
                 ws.send("Complete");
