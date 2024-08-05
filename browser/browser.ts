@@ -540,8 +540,9 @@ export class BrowserSingleplayerState extends BrowserGameState {
                 this.board.setCharacter(this.game.board.currentWordIndex, this.game.board.currentCharacterIndex, ' ');
             }
             else {
-                this.board.setCharacter(this.game.board.currentWordIndex, this.game.board.currentCharacterIndex, key);
-                this.game.onPushCharacter(key);
+                const charPos = this.game.board.currentCharacterIndex;
+                if (this.game.onPushCharacter(key))
+                    this.board.setCharacter(this.game.board.currentWordIndex, charPos, key);
             }
         }
 
