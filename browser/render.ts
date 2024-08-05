@@ -579,21 +579,21 @@ export class BrowserUIFactory {
         return count * width + (count - 1) * space;
     }
 
-    public createWord(word: WordleWord, x: number = 0, y: number = 0, wx: number = BrowserUIFactory.charSize, wy: number = BrowserUIFactory.charSize, space = BrowserUIFactory.charSpaceSize): [Array<BrowserRectangle>, BrowserRegion] {
+    public createWord(charCount: number, x: number = 0, y: number = 0, wx: number = BrowserUIFactory.charSize, wy: number = BrowserUIFactory.charSize, space = BrowserUIFactory.charSpaceSize): [Array<BrowserRectangle>, BrowserRegion] {
         let right = x;
         const result: Array<BrowserRectangle> = [];
-        for (let j = 0; j < word.word.length; j++, right += wx + space) {
-            result.push(new BrowserRectangle(right, y, wx, wy, { strokeStyle: "gray", strokeWidth: 1, text: word.word[j].character.toUpperCase(), font: "bold 36px Sans-serif", styleList: BrowserUIFactory.charColors }));
+        for (let j = 0; j < charCount; j++, right += wx + space) {
+            result.push(new BrowserRectangle(right, y, wx, wy, { strokeStyle: "gray", strokeWidth: 1, text: ' ', font: "bold 36px Sans-serif", styleList: BrowserUIFactory.charColors }));
         }
         return [result, BrowserRegion.fromAbsolutePositions(x, y, right - space, y + wy)];
     }
 
-    public createCells(board: WordleBoard, x: number = 0, y: number = 0, wx: number = BrowserUIFactory.charSize, wy: number = BrowserUIFactory.charSize, spaceWx = BrowserUIFactory.charSpaceSize, spaceWy = BrowserUIFactory.charSpaceSize): [Array<BrowserRectangle>, BrowserRegion] {
+    public createCells(wordCount: number, charCount: number, x: number = 0, y: number = 0, wx: number = BrowserUIFactory.charSize, wy: number = BrowserUIFactory.charSize, spaceWx = BrowserUIFactory.charSpaceSize, spaceWy = BrowserUIFactory.charSpaceSize): [Array<BrowserRectangle>, BrowserRegion] {
         let result: Array<BrowserRectangle> = [];
         let region = new BrowserRegion(x, y, 0, 0);
         let bottom = y;
-        for (let i = 0; i < board.totalWordCount; i++, bottom += wy + spaceWy) {
-            const word = this.createWord(board.data[i], x, bottom, wx, wy, spaceWx);
+        for (let i = 0; i < wordCount; i++, bottom += wy + spaceWy) {
+            const word = this.createWord(charCount, x, bottom, wx, wy, spaceWx);
             result = result.concat(word[0]);
             region = region.merge(word[1]);
         }

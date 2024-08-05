@@ -5,11 +5,17 @@
 //
 
 import { BrowserClient } from "../coop.js";
-import { WordleBoard, WordleCharacterState, WordleGame, WordleWord } from "../wordle.js";
+import { WordleBoard, WordleCharacter, WordleCharacterState, WordleGame, WordleWord } from "../wordle.js";
 import { WordListManager } from "../wordList.js";
-import { BrowserCharAnimation, BrowserFramebuffer, BrowserRectangle, BrowserRegion, BrowserRenderAnimation, BrowserShakeAnimation, BrowserUIFactory, BrowserWinAnimation, BrowserWordAnimation } from "./render.js";
+import { BrowserCharAnimation, BrowserFramebuffer, BrowserRectangle, BrowserRegion, BrowserRenderAnimation, BrowserRenderTarget, BrowserShakeAnimation, BrowserUIFactory, BrowserWinAnimation, BrowserWordAnimation } from "./render.js";
 
-export abstract class BrowserState {
+export interface BrowserMouseUserInterface {
+    handleMouseClick(x: number, y: number): void;
+}
+
+// There is no "BrowserKeyUserInterface" because this application is streamlined for users on mobile.
+
+export abstract class BrowserState extends BrowserRenderTarget implements BrowserMouseUserInterface {
     public abstract hasQueuedState(): boolean;
     public abstract popQueuedState(): BrowserState | undefined;
     public abstract handleResize(wx: number, wy: number): void;
@@ -113,7 +119,7 @@ export class BrowserMenuState extends BrowserState {
 /**
  * Represents both the UI component of a keyboard and the functionality.
  */
-export class BrowserKeyboard {
+export class BrowserKeyboard extends BrowserRenderTarget implements BrowserMouseUserInterface {
     private _keys: Array<BrowserRectangle>;
     private _image: BrowserFramebuffer;
     private _needsInvalidate: boolean;
@@ -121,6 +127,8 @@ export class BrowserKeyboard {
     private _keysRegion: BrowserRegion;
     private _adjRegion: BrowserRegion;
     private _transform: DOMMatrix;
+
+    private _currentKey: string = "";
 
     public get region(): BrowserRegion {
         return this._adjRegion;
@@ -133,6 +141,7 @@ export class BrowserKeyboard {
     }
 
     public constructor(x: number, y: number) {
+        super();
         [this._keys, this._keysRegion] = new BrowserUIFactory().createKeyboard();
         this._image = new BrowserFramebuffer(1, 1);
         this._needsInvalidate = true;
@@ -159,6 +168,8 @@ export class BrowserKeyboard {
         ctx.setTransform();
         ctx.drawImage(this._image.canvas, 0, 0);
         ctx.setTransform(mat4);
+
+        this._currentKey = "";
     }
     
     public getCharRectangle(character: string): BrowserRectangle {
@@ -172,41 +183,49 @@ export class BrowserKeyboard {
         return realResult;
     }
 
-    /**
-     * Handles any mouse input
-     * @param x Translated x-coordinate of the mouse input
-     * @param y Translated y-coordinate of the mouse input
-     * @returns The character pressed by the user, or an empty string if no character was pressed by the user
-     */
-    public handleMouseClick(x: number, y: number): string {
+    public handleKeyClick(char: string): void {
+        if ("abcdefghijklmnopqrstuvwxyz".includes(char.toLowerCase()) || char === "Backspace" || char == "Enter")
+            this._currentKey = char;
+    }
+
+    public handleMouseClick(x: number, y: number): void {
         const pt = this._transform.inverse().transformPoint(new DOMPoint(x, y));
         for (let i = 0; i < this._keys.length; i++) {
             if (this._keys[i].isPointInRectangle(pt.x, pt.y))
-                return this._keys[i].text === "\u232B" ? "Backspace" : this._keys[i].text;
+                this._currentKey = this._keys[i].text === "\u232B" ? "Backspace" : this._keys[i].text;
         }
-        return "";
     }
+
+    public getCurrentKey(): string {
+        return this._currentKey;
+    }
+}
+
+export enum BrowserAction {
+    PushCharacter,
+    PushWord,
+    ShakeWord,
+    PopCharacter,
 }
 
 /**
  * Represents the game's character board and its UI
  */
-export class BrowserWordleBoard {
+export class BrowserWordleBoard extends BrowserRenderTarget {
     private _image: BrowserFramebuffer;
     private _needsInvalidate: boolean;
 
     private _cells: Array<BrowserRectangle>;
     private _animations: Array<BrowserCharAnimation>;
-    private _currentWordAnimation: BrowserRenderAnimation | undefined;
+    private _wordQueue: Array<BrowserRenderAnimation>;
 
     private _cellsRegion: BrowserRegion;
     private _adjRegion: BrowserRegion;
     private _transform: DOMMatrix;
 
-    private _board: WordleBoard;
-    public get game(): WordleBoard {
-        return this._board;
-    }
+    private _charCount: number;
+    private _wordCount: number;
+    public addAnimations: boolean = true;
 
     public get region(): BrowserRegion {
         return this._adjRegion;
@@ -217,32 +236,13 @@ export class BrowserWordleBoard {
         this._transform = new BrowserUIFactory().createTransform(this._cellsRegion, this._adjRegion);
     }
 
-    public get wordAnimation(): BrowserRenderAnimation | undefined {
-        return this._currentWordAnimation;
-    }
-
-    public setWordAnimationAt(value: BrowserRenderAnimation | undefined, wordIndex: number): void {
-        this._currentWordAnimation = value;
-        if (value) {
-            value.id = wordIndex;
-            this._needsInvalidate = true;
-        }
-    }
-
-    public addCharAnimation(anim: BrowserCharAnimation, wordIndex: number, charIndex: number): void {
-        anim.id = wordIndex * this._board.totalCharacterCount + charIndex;
-        const existsIndex = this._animations.findIndex(v => v.id == anim.id);
-        if (existsIndex !== -1)
-            this._animations[existsIndex] = anim;
-        else
-            this._animations.push(anim);
-        this._needsInvalidate = true;
-    }
-
-    public constructor(board: WordleBoard, x: number, y: number) {
-        this._board = board;
-        [this._cells, this._cellsRegion] = new BrowserUIFactory().createCells(this._board);
+    public constructor(x: number, y: number, wordCount: number, charCount: number) {
+        super();
+        this._wordCount = wordCount;
+        this._charCount = charCount;
+        [this._cells, this._cellsRegion] = new BrowserUIFactory().createCells(this._wordCount, this._charCount);
         this._animations = [];
+        this._wordQueue = [];
         this._image = new BrowserFramebuffer(1, 1);
         this._needsInvalidate = true;
 
@@ -250,55 +250,80 @@ export class BrowserWordleBoard {
         this._adjRegion = this._cellsRegion.transform(this._transform);
     }
 
-    public cellAt(wordIndex: number, charIndex: number): BrowserRectangle {
-        return this._cells[wordIndex * this._board.totalCharacterCount + charIndex];
-    }
+    /**
+     * Sets character at (wordIndex, charIndex) to char and color.
+     * This does not play an animation if the flag "addAnimations" is set to false or the char is a space character.
+     * @param wordIndex Word index of character
+     * @param charIndex Character index of character
+     * @param char The one-letter, alphabetic character to use. This is converted to uppercase when displayed.
+     * @param color The color/state of the cell.
+     */
+    public setCharacter(wordIndex: number, charIndex: number, char: string, color: WordleCharacterState = WordleCharacterState.Unknown): void {
+        char = char.toUpperCase();
+        if (char.length !== 1 || !"ABCDEFGHIJKLMNOPQRSTUVWXYZ ".includes(char))
+            throw new Error("String passed does not have a length of one or is not part of the alphabet, or is not a space character.");
+        if (wordIndex < 0 || wordIndex >= this._wordCount || charIndex < 0 || charIndex >= this._charCount)
+            return;
 
-    public wordAt(wordIndex: number): Array<BrowserRectangle> {
-        return this._cells.slice(wordIndex * this._board.totalCharacterCount, (wordIndex + 1) * this._board.totalCharacterCount);
-    }
+        const cellIndex = wordIndex * this._charCount + charIndex;
+        this._cells[cellIndex].text = char;
+        this._cells[cellIndex].style = this._cells[cellIndex].styleList[color];
 
-    public syncBoardIndex(wordIndex: number, charIndex: number): void {
-        this.cellAt(wordIndex, charIndex).text = this._board.data[wordIndex].word[charIndex].character.toUpperCase();
-    }
-
-    public updateWordAndAnimation(previousIndex: number, success: boolean): void {
-        const index = previousIndex * this._board.totalCharacterCount;
-        let previous = new BrowserUIFactory().createWord(this._board.data[previousIndex], this._cells[index].x, this._cells[index].y)[0];
-        this._animations = this._animations.filter(v => Math.floor(v.id / this._board.totalCharacterCount) !== previousIndex);
-
-        if (success) {
-            this.setWordAnimationAt(new BrowserWordAnimation(previous, this._cells.slice(index, index + this._board.totalCharacterCount)), previousIndex);
-            this._board.data[previousIndex].word.forEach((v, i) => {
-                const cell = this.cellAt(previousIndex, i);
-                cell.style = cell.styleList[v.state];
-            });
-        }
+        if (!this.addAnimations || char === ' ')
+            return;
+        const previousIndex = this._animations.findIndex(v => v.id === cellIndex);
+        const anim = new BrowserCharAnimation(this._cells[cellIndex], 5, cellIndex);
+        if (previousIndex === -1)
+            this._animations.push(anim);
         else
-            this.setWordAnimationAt(new BrowserShakeAnimation(previous, previousIndex), previousIndex);
+            this._animations[previousIndex] = anim;
     }
 
-    public updateCharAndAnimation(char: string, wordIndex: number, charIndex: number): void {
-        if (this._currentWordAnimation)
-            this._currentWordAnimation = undefined;
-        this.cellAt(wordIndex, charIndex).text = char.toUpperCase();
-        this.addCharAnimation(new BrowserCharAnimation(this.cellAt(wordIndex, charIndex), 5), wordIndex, charIndex);
+    /**
+     * Sets word at wordIndex to word. If the "addAnimations" flag is true, it will do the following:
+     *     If all characters are colored and are filled in, the word will display a flip animation. Otherwise, it will shake.
+     *     If all colored parts of the word are green, it will create a win animation after on those cells.
+     * @param wordIndex The index of the word on the board. This dictates where it will be displayed
+     * @param word The completed, colored word
+     */
+    public setWord(wordIndex: number, word: WordleCharacter[]): void {
+        if (word.length !== this._charCount)
+            throw new Error("Word passed does not match the length of the board.");
+        const uncolored = new BrowserUIFactory().createWord(this._charCount, 0, this._cells[wordIndex * this._charCount].y)[0];
+        let allGreen = true, allComplete = true;
+        for (let i = 0; i < word.length; i++) {
+            const cell = this._cells[wordIndex * this._charCount + i];
+            cell.text = word[i].character.toUpperCase();
+            cell.style = cell.styleList[word[i].state];
+            uncolored[i].text = word[i].character.toUpperCase();
+            allGreen = allGreen && word[i].state === WordleCharacterState.Green;
+            allComplete = allComplete && word[i].character !== ' ' && word[i].state !== WordleCharacterState.Unknown;
+        }
+        const region = this._cells.slice(wordIndex * this._charCount, wordIndex * this._charCount + this._charCount);
+        if (this.addAnimations && allComplete) {
+            this._animations = this._animations.filter(v => v.id < wordIndex * this._charCount || v.id >= wordIndex * this._charCount + this._charCount);
+            this._wordQueue.push(new BrowserWordAnimation(uncolored, region, wordIndex));
+            if (allGreen)
+                this._wordQueue.push(new BrowserWinAnimation(region, wordIndex));
+        }
+        else if (this.addAnimations) {
+            this._animations = this._animations.filter(v => v.id < wordIndex * this._charCount || v.id >= wordIndex * this._charCount + this._charCount);
+            this._wordQueue.push(new BrowserShakeAnimation(region, wordIndex));
+        }
     }
 
     /**
      * Renders game board to ctx, using delta parameter
      * @param ctx Canvas to render to. Transform in use prior is conserved.
      * @param delta Time in milliseconds since the last render
-     * @returns Word then char animation that was used
      */
-    public render(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, delta: number): BrowserRenderAnimation | undefined {
+    public render(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, delta: number): void {
         if (ctx.canvas.width !== this._image.canvas.width || ctx.canvas.height !== this._image.canvas.height) {
             this._image = new BrowserFramebuffer(ctx.canvas.width, ctx.canvas.height);
             this._needsInvalidate = true;
         }
 
         const mat4 = ctx.getTransform();
-        let result: BrowserRenderAnimation | undefined = undefined;
         if (this._needsInvalidate || mat4 !== this._image.context.getTransform()) {
             this._image.context.setTransform();
             this._image.context.clearRect(0, 0, this._image.canvas.width, this._image.canvas.height);
@@ -307,16 +332,13 @@ export class BrowserWordleBoard {
             this._image.context.textBaseline = "middle";
             for (let i = 0; i < this._cells.length; i++) {
                 let animationIndex = this._animations.findIndex(v => v.id === i);
-                if (this._currentWordAnimation !== undefined && Math.floor(i / this._board.totalCharacterCount) === this._currentWordAnimation.id) {
-                    result = this._currentWordAnimation;
-                    this._currentWordAnimation.render(this._image.context, delta);
-                    i += this._board.totalCharacterCount - 1;
-                    if (this._currentWordAnimation.isDone())
-                        this._currentWordAnimation = undefined;
-                    }
+                if (this._wordQueue.length !== 0 && Math.floor(i / this._charCount) === this._wordQueue[0].id) {
+                    this._wordQueue[0].render(this._image.context, delta);
+                    i += this._charCount - 1;
+                    if (this._wordQueue[0].isDone())
+                        this._wordQueue.splice(0, 1);
+                }
                 else if (animationIndex !== -1) {
-                    if (result !== this._currentWordAnimation)
-                        result = this._animations[animationIndex];
                     this._animations[animationIndex].render(this._image.context, delta);
                     if (this._animations[animationIndex].isDone())
                         this._animations.splice(animationIndex, 1);
@@ -325,216 +347,115 @@ export class BrowserWordleBoard {
                     this._cells[i].render(this._image.context, delta);
             }
             this._image.context.setTransform(mat4);
-            this._needsInvalidate = this.wordAnimation !== undefined || this._animations.length !== 0;
+            this._needsInvalidate = this._wordQueue.length !== 0 || this._animations.length !== 0;
         }
         ctx.setTransform();
         ctx.drawImage(this._image.canvas, 0, 0);
         ctx.setTransform(mat4);
-        return result;
     }
 }
 
-export class BrowserGameState extends BrowserState {
-    private _menuButton: BrowserRectangle;
-    private _previousMessage: string = "";
-    private _board: BrowserWordleBoard;
-    private _keyboard: BrowserKeyboard;
-
+export class BrowserSingleplayerState extends BrowserState {
     private _transform: DOMMatrix;
-
+    private _keyboard: BrowserKeyboard;
+    private _board: BrowserWordleBoard;
     private _game: WordleGame;
-    private _popMessage = false;
+    private _menuButton: BrowserRectangle;
+    private _message: string = "";
+    private _messagePos: number;
 
+    private _region: BrowserRegion;
     private _wx: number = 1;
     private _wy: number = 1;
 
-    private _queuedState: BrowserState | undefined;
+    private _nextState: BrowserState | undefined;
+
+    public constructor() {
+        super();
+        this._game = new WordleGame();
+        this._board = new BrowserWordleBoard(0, 28, this._game.board.totalWordCount, this._game.board.totalCharacterCount);
+        this._keyboard = new BrowserKeyboard(0, this._board.region.bottom + 18);
+
+        if (this._board.region.wx < this._keyboard.region.wx)
+            this._board.region = new BrowserRegion(this._board.region.x + this._keyboard.region.wx / 2 - this._board.region.wx / 2, this._board.region.y, this._board.region.wx, this._board.region.wy);
+        else
+            this._keyboard.region = new BrowserRegion(this._keyboard.region.x + this._board.region.wx / 2 - this._keyboard.region.wx / 2, this._keyboard.region.y, this._keyboard.region.wx, this._keyboard.region.wy);
+
+        this._messagePos = Math.min(this._board.region.x, this._keyboard.region.x) + Math.max(this._board.region.wx, this._keyboard.region.wx);
+        this._menuButton = new BrowserRectangle(0, 0, new BrowserUIFactory().measureText("bold 24px \"Verdana\"", "MENU")[0], 24, { text: "MENU", font: "bold 24px \"Verdana\"" }); 
+        this._region = this._board.region.merge(this._keyboard.region).merge(this._menuButton.region);
+        this._transform = new BrowserUIFactory().createTransform(this._region, this._region.centerRegion(this._wx, this._wy));
+    }
 
     public hasQueuedState(): boolean {
-        return !!this._queuedState;
+        return !!this._nextState;
     }
 
     public popQueuedState(): BrowserState | undefined {
-        const result = this._queuedState;
-        this._queuedState = undefined;
-        return result;
+        const state = this._nextState;
+        this._nextState = undefined;
+        return state;
     }
 
-    /**
-     * Region encompassing all components of this state.
-     * This gets calculated every time it is called and it is not centered.
-     */
-    public get region(): BrowserRegion {
-        return this._board.region.merge(this._keyboard.region).merge(this._menuButton.region);
+    public handleResize(wx: number, wy: number): void {
+        this._transform = new BrowserUIFactory().createTransform(this._region, this._region.centerRegion(this._wx = wx, this._wy = wy));
     }
 
-    /**
-     * Clears UI state to new board
-     * @returns Cells, cell region, keyboard, MENU button, and the transform in that order.
-     */
-    private onNewGame(): [BrowserWordleBoard, BrowserKeyboard, BrowserRectangle, DOMMatrix] {
-        const creator = new BrowserUIFactory();
-        const board = new BrowserWordleBoard(this._game.board, 0, 28);
-        const keyboard = new BrowserKeyboard(0, board.region.bottom + 18);
-        const menuButton = new BrowserRectangle(0, 0, creator.measureText("bold 24px \"Verdana\"", "MENU")[0], 24, { text: "MENU", font: "bold 24px \"Verdana\"" });
-
-        if (board.region.wx < keyboard.region.wx)
-            board.region = new BrowserRegion(board.region.x + keyboard.region.wx / 2 - board.region.wx / 2, board.region.y, board.region.wx, board.region.wy);
-        else
-            keyboard.region = new BrowserRegion(keyboard.region.x + board.region.wx / 2 - keyboard.region.wx / 2, keyboard.region.y, keyboard.region.wx, keyboard.region.wy);
-
-        const finalRegion = board.region.merge(keyboard.region).merge(menuButton.region);
-        return [board, keyboard, menuButton, creator.createTransform(finalRegion, finalRegion.centerRegion(this._wx, this._wy))];
+    public handleMouseClick(x: number, y: number): void {
+        const transformed = this._transform.inverse().transformPoint(new DOMPoint(x, y));
+        x = transformed.x;
+        y = transformed.y;
+        this._keyboard.handleMouseClick(x, y);
+        if (this._menuButton.isPointInRectangle(x, y))
+            this._nextState = new BrowserMenuState(this);
     }
 
-    public constructor(word: string = "") {
-        super();
-
-        this._game = new WordleGame();
-        if (word !== "")
-            this._game.restart(word);
-        [this._board, this._keyboard, this._menuButton, this._transform] = this.onNewGame();
-    }
-
-    private giveUp(): void {
-        this._game.giveUp();
-        for (let i = 0; i < this._game.board.totalCharacterCount; i++) {
-            const cell = this._board.cellAt(this._game.board.currentWordIndex, i);
-            cell.style = cell.styleList[WordleCharacterState.Green];
-            cell.text = this._game.board.targetWord[i].toUpperCase();
-        }
-        this._board.setWordAnimationAt(new BrowserShakeAnimation(this._board.wordAt(this._game.board.currentWordIndex)), this._game.board.currentWordIndex);
+    public handleKeyClick(input: string): void {
+        this._keyboard.handleKeyClick(input);
     }
 
     public render(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, delta: number): void {
+        const key = this._keyboard.getCurrentKey();
+        if (key !== "") {
+            this._game.startQueuedGame();
+            if (key === "Enter") {
+                const start = this._game.board.currentWordIndex;
+                this._game.onPushWord();
+                this._board.setWord(start, this._game.board.data[start].word);
+            }
+            else if (key === "Backspace") {
+                this._game.onPopCharacter();
+                this._board.setCharacter(this._game.board.currentWordIndex, this._game.board.currentCharacterIndex, ' ');
+            }
+            else {
+                this._board.setCharacter(this._game.board.currentWordIndex, this._game.board.currentCharacterIndex, key);
+                this._game.onPushCharacter(key);
+            }
+            this._message = this._game.popMessage();
+        }
+
         ctx.resetTransform();
         ctx.fillStyle = "white";
         ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
         ctx.setTransform(this._transform);
 
-        const anim = this._board.render(ctx, delta);
-        if (anim && anim.isDone()) {
-            this._game.board.data[anim.id].word.forEach(v => {
-                const rect = this._keyboard.getCharRectangle(v.character);
-                if (v.state > rect.styleList.indexOf(rect.style))
-                    rect.style = rect.styleList[v.state];
-            });
-            if (this._game.isWon() && anim.constructor.name !== "BrowserWinAnimation")
-                this._board.setWordAnimationAt(new BrowserWinAnimation(this._board.wordAt(anim.id)), anim.id);
-        }
+        this._board.render(ctx, delta);
         this._keyboard.render(ctx, delta);
+
         ctx.textBaseline = "middle";
         ctx.textAlign = "center";
         this._menuButton.render(ctx, delta);
 
-        if (this._popMessage) {
-            this._previousMessage = this._game.popMessage();
-            this._popMessage = false;
-        }
-
         ctx.font = "24px Sans-serif";
         ctx.textBaseline = "top";
         ctx.textAlign = "right";
-        if (this._board.wordAnimation === undefined || this._board.wordAnimation.renderMessageDuring)
-            ctx.fillText(this._previousMessage, Math.min(this._board.region.x, this._keyboard.region.x) + Math.max(this._board.region.wx, this._keyboard.region.wx), 0, 250);
+        ctx.fillText(this._message, this._messagePos, 0, 250);
 
         if (this._game.guidedMode) {
             ctx.textAlign = "left";
             ctx.font = "10px Sans-Serif";
             ctx.fillText("Guided mode -- Shift+T to toggle", 0, this._board.region.bottom + 4);
         }
-    }
-
-    public handleResize(wx: number, wy: number): void {
-        const target = this.region;
-        this._transform = new BrowserUIFactory().createTransform(target, target.centerRegion(this._wx = wx, this._wy = wy));
-        this._popMessage = true;
-    }
-
-    public handleMouseClick(x: number, y: number): void {
-        const translate = this._transform.inverse().transformPoint(new DOMPoint(x, y));
-        x = translate.x;
-        y = translate.y;
-
-        this.handleKeyClick(this._keyboard.handleMouseClick(x, y));
-
-        if (this._menuButton.isPointInRectangle(x, y))
-            this._queuedState = new BrowserMenuState(this);
-    }
-
-    private handleShortcuts(key: string): void {
-        if (key.length !== 1)
-            throw new Error("Key provided is not a character.");
-
-        switch (key) {
-            case BrowserShortcut.ToggleGuidedMode:
-                this._game.guidedMode = !this._game.guidedMode;
-                break;
-
-            case BrowserShortcut.SetWordManual:
-                const word = prompt("Word:", WordListManager.getRandomWord());
-                if (word && WordListManager.getWordCoordinates(word)) {
-                    this._game.restart(word);
-                    [this._board, this._keyboard, this._menuButton, this._transform] = this.onNewGame();
-                }
-                else
-                    alert("Word \"" + word + "\" not found.");
-                break;
-
-            case BrowserShortcut.SetWordNumber:
-                const numberString = prompt("Word number:", Math.floor(Math.random() * WordListManager.getTotalWordCount()).toString());
-                if (!numberString)
-                    break;
-                let number = parseInt(numberString);
-                this._game.restart(WordListManager.getWordOnIndex(number));
-                [this._board, this._keyboard, this._menuButton, this._transform] = this.onNewGame();
-                break;
-
-            case BrowserShortcut.GiveUp:
-                this.giveUp();
-                break;
-
-            case BrowserShortcut.HostGame:
-                BrowserClient.host().then(v => console.log(v.sessionId));
-                break;
-            case BrowserShortcut.JoinGame:
-                const sessionId = prompt("Session id:");
-                if (sessionId)
-                    BrowserClient.join(sessionId).then(v => console.log(v.sessionId));
-                break;
-        }
-    }
-
-    private handlePushCharacter(char: string): void {
-        if (char.toUpperCase() === char)
-            this.handleShortcuts(char);
-        else {
-            const charIndex = this._game.board.currentCharacterIndex;
-            if (this._game.onPushCharacter(char))
-                this._board.updateCharAndAnimation(char, this._game.board.currentWordIndex, charIndex);
-        }
-    }
-
-    public handleKeyClick(input: string): void {
-        if (this._board.wordAnimation !== undefined || input === "")
-            return;
-
-        if (this._game.startQueuedGame())
-            [this._board, this._keyboard, this._menuButton, this._transform] = this.onNewGame();
-
-        const lowerInput = input.toLowerCase();
-        if (lowerInput === "enter")
-            this._board.updateWordAndAnimation(this._game.board.currentWordIndex, this._game.onPushWord());
-        else if (lowerInput === "backspace") {
-            this._game.onPopCharacter();
-            this._board.cellAt(this._game.board.currentWordIndex, this._game.board.currentCharacterIndex).text = "";
-        }
-        else if (lowerInput.length === 1 && /^[a-z]+$/.test(lowerInput))
-            this.handlePushCharacter(input);
-        else
-            return;
-
-        this._popMessage = true;
     }
 }
 
@@ -568,7 +489,7 @@ module BrowserWordle {
         addEventListener("keydown", onKeyDown);
         addEventListener("click", onClick);
 
-        state = new BrowserGameState();
+        state = new BrowserSingleplayerState();
         window.browserState = state;
 
         let fpsElapsed = 0.0;
