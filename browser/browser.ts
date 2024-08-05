@@ -5,7 +5,7 @@
 //
 
 import { BrowserClient } from "../coop.js";
-import { WordleBoard, WordleCharacter, WordleCharacterState, WordleGame, WordleWord } from "../wordle.js";
+import { WordleCharacter, WordleCharacterState, WordleGame } from "../wordle.js";
 import { WordListManager } from "../wordList.js";
 import { BrowserCharAnimation, BrowserFramebuffer, BrowserRectangle, BrowserRegion, BrowserRenderAnimation, BrowserRenderTarget, BrowserShakeAnimation, BrowserUIFactory, BrowserWinAnimation, BrowserWordAnimation } from "./render.js";
 

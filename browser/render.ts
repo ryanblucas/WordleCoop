@@ -4,8 +4,6 @@
 //  UI renderer
 //
 
-import { WordleBoard, WordleWord } from "../wordle.js";
-
 export abstract class BrowserRenderTarget {
     public id: number = 0;
     public abstract render(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, delta: number): void;
