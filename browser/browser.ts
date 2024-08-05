@@ -533,7 +533,7 @@ module BrowserWordle {
         state = new BrowserSingleplayerState();
         window.browserState = state;
 
-        let fpsElapsed = 0.0;
+        let fpsElapsed = 0.0, fpsSamples = 0, avgFps = 0;
         let last = performance.now();
         const frame = (curr: number) => {
             if (previousWidth !== ctx.canvas.width || previousHeight !== ctx.canvas.height)
@@ -546,12 +546,23 @@ module BrowserWordle {
 
             const msDelta = curr - last;
             state.render(ctx, msDelta / 1000.0);
-            if ((fpsElapsed += msDelta) > 1000.0) {
+
+            fpsSamples++;
+            if ((fpsElapsed += msDelta) > 100.0) {
+                avgFps = 1000.0 / (fpsElapsed / fpsSamples);
                 fpsElapsed = 0.0;
-                console.log(1000.0 / msDelta);
+                fpsSamples = 0;
             }
+
+            ctx.setTransform();
+            ctx.font = "24px Sans-serif";
+            ctx.textAlign = "left";
+            ctx.textBaseline = "top";
+            ctx.fillText(`FPS: ${avgFps.toFixed(0)}`, 10, 10);
+
             last = curr;
 
+            // This function is asynchronous, so there is no stack overflow. But, it shows on the call stack how many frames there have been; is there a way to limit this?
             requestAnimationFrame(frame);
         };
         requestAnimationFrame(frame);
