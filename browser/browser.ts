@@ -236,6 +236,15 @@ export class BrowserWordleBoard extends BrowserRenderTarget {
         this._transform = new BrowserUIFactory().createTransform(this._cellsRegion, this._adjRegion);
     }
 
+    /**
+     * Gets current word animation. If there is no word animation, it returns a completed BrowserCharAnimation.
+     */
+    public get wordAnimation(): BrowserRenderAnimation {
+        const blank = new BrowserCharAnimation(this._cells[0], 0, 0);
+        blank.percent = 1.1;
+        return this._wordQueue.length <= 0 ? blank : this._wordQueue[0];
+    }
+
     public constructor(x: number, y: number, wordCount: number, charCount: number) {
         super();
         this._wordCount = wordCount;
@@ -370,17 +379,21 @@ export class BrowserSingleplayerState extends BrowserState {
 
     private _nextState: BrowserState | undefined;
 
-    public constructor() {
-        super();
-        this._game = new WordleGame();
-        this._board = new BrowserWordleBoard(0, 28, this._game.board.totalWordCount, this._game.board.totalCharacterCount);
-        this._keyboard = new BrowserKeyboard(0, this._board.region.bottom + 18);
-
+    private centerKeyboardAndBoard(): void {
         if (this._board.region.wx < this._keyboard.region.wx)
             this._board.region = new BrowserRegion(this._board.region.x + this._keyboard.region.wx / 2 - this._board.region.wx / 2, this._board.region.y, this._board.region.wx, this._board.region.wy);
         else
             this._keyboard.region = new BrowserRegion(this._keyboard.region.x + this._board.region.wx / 2 - this._keyboard.region.wx / 2, this._keyboard.region.y, this._keyboard.region.wx, this._keyboard.region.wy);
+    }
 
+    public constructor() {
+        super();
+        this._game = new WordleGame();
+
+        this._board = new BrowserWordleBoard(0, 28, this._game.board.totalWordCount, this._game.board.totalCharacterCount);
+        this._keyboard = new BrowserKeyboard(0, this._board.region.bottom + 18);
+        this.centerKeyboardAndBoard();
+        
         this._messagePos = Math.min(this._board.region.x, this._keyboard.region.x) + Math.max(this._board.region.wx, this._keyboard.region.wx);
         this._menuButton = new BrowserRectangle(0, 0, new BrowserUIFactory().measureText("bold 24px \"Verdana\"", "MENU")[0], 24, { text: "MENU", font: "bold 24px \"Verdana\"" }); 
         this._region = this._board.region.merge(this._keyboard.region).merge(this._menuButton.region);
@@ -414,10 +427,18 @@ export class BrowserSingleplayerState extends BrowserState {
         this._keyboard.handleKeyClick(input);
     }
 
+    private _changeUiAt: number = -1;
     public render(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, delta: number): void {
         const key = this._keyboard.getCurrentKey();
-        if (key !== "") {
-            this._game.startQueuedGame();
+        if (key !== "" && this._board.wordAnimation.isDone()) {
+            if (this._game.startQueuedGame()) {
+                this._board = new BrowserWordleBoard(0, 28, this._game.board.totalWordCount, this._game.board.totalCharacterCount);
+                this._keyboard = new BrowserKeyboard(0, this._board.region.bottom + 18);
+                this.centerKeyboardAndBoard();
+                this._region = this._board.region.merge(this._keyboard.region).merge(this._menuButton.region);
+                this._transform = new BrowserUIFactory().createTransform(this._region, this._region.centerRegion(this._wx, this._wy));
+            }
+            this._changeUiAt = this._game.board.currentWordIndex;
             if (key === "Enter") {
                 const start = this._game.board.currentWordIndex;
                 this._game.onPushWord();
@@ -431,7 +452,6 @@ export class BrowserSingleplayerState extends BrowserState {
                 this._board.setCharacter(this._game.board.currentWordIndex, this._game.board.currentCharacterIndex, key);
                 this._game.onPushCharacter(key);
             }
-            this._message = this._game.popMessage();
         }
 
         ctx.resetTransform();
@@ -446,6 +466,15 @@ export class BrowserSingleplayerState extends BrowserState {
         ctx.textAlign = "center";
         this._menuButton.render(ctx, delta);
 
+        if (this._changeUiAt !== -1 && this._board.wordAnimation.renderMessageDuring) {
+            this._message = this._game.popMessage();
+            this._game.board.data[this._changeUiAt].word.forEach(v => {
+                const cell = this._keyboard.getCharRectangle(v.character);
+                if (cell.styleList.indexOf(cell.style) < v.state)
+                    cell.style = cell.styleList[v.state];
+            });
+            this._changeUiAt = -1;
+        }
         ctx.font = "24px Sans-serif";
         ctx.textBaseline = "top";
         ctx.textAlign = "right";
