@@ -298,20 +298,25 @@ export class BrowserWordleBoard extends BrowserRenderTarget {
     public setWord(wordIndex: number, word: WordleCharacter[]): void {
         if (word.length !== this._charCount)
             throw new Error("Word passed does not match the length of the board.");
-        const uncolored = new BrowserUIFactory().createWord(this._charCount, 0, this._cells[wordIndex * this._charCount].y)[0];
+        const previous = new BrowserUIFactory().createWord(this._charCount, 0, this._cells[wordIndex * this._charCount].y)[0];
         let allGreen = true, allComplete = true;
         for (let i = 0; i < word.length; i++) {
             const cell = this._cells[wordIndex * this._charCount + i];
+
+            // deep copies
+            previous[i].text = (' ' + cell.text).slice(1);
+            previous[i].style = (' ' + cell.style).slice(1);
+
             cell.text = word[i].character.toUpperCase();
             cell.style = cell.styleList[word[i].state];
-            uncolored[i].text = word[i].character.toUpperCase();
+
             allGreen = allGreen && word[i].state === WordleCharacterState.Green;
             allComplete = allComplete && word[i].character !== ' ' && word[i].state !== WordleCharacterState.Unknown;
         }
         const region = this._cells.slice(wordIndex * this._charCount, wordIndex * this._charCount + this._charCount);
         if (this.addAnimations && allComplete) {
             this._animations = this._animations.filter(v => v.id < wordIndex * this._charCount || v.id >= wordIndex * this._charCount + this._charCount);
-            this._wordQueue.push(new BrowserWordAnimation(uncolored, region, wordIndex));
+            this._wordQueue.push(new BrowserWordAnimation(previous, region, wordIndex));
             if (allGreen)
                 this._wordQueue.push(new BrowserWinAnimation(region, wordIndex));
         }
@@ -432,10 +437,14 @@ export abstract class BrowserGameState extends BrowserState {
     }
 
     public handleKeyClick(input: string): void {
-        this.keyboard.handleKeyClick(input);
+        if (input.toUpperCase() === input && Object.values(BrowserShortcut).includes(input as BrowserShortcut))
+            this.shortcut(input as BrowserShortcut);
+        else
+            this.keyboard.handleKeyClick(input);
     }
 
     protected abstract update(): void;
+    protected abstract shortcut(shortcut: BrowserShortcut): void;
 
     public render(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, delta: number): void {
         this.update();
@@ -467,6 +476,51 @@ export abstract class BrowserGameState extends BrowserState {
 
 export class BrowserSingleplayerState extends BrowserGameState {
     private _changeUiAt: number = -1;
+    protected shortcut(key: BrowserShortcut) {
+        switch (key) {
+            case BrowserShortcut.ToggleGuidedMode:
+                this.game.guidedMode = !this.game.guidedMode;
+                break;
+
+            case BrowserShortcut.SetWordManual:
+                const word = prompt("Word:", WordListManager.getRandomWord());
+                if (word && WordListManager.getWordCoordinates(word)) {
+                    this.game.restart(word);
+                    this.createInterface();
+                }
+                else
+                    alert("Word \"" + word + "\" not found.");
+                break;
+
+            case BrowserShortcut.SetWordNumber:
+                const numberString = prompt("Word number:", Math.floor(Math.random() * WordListManager.getTotalWordCount()).toString());
+                if (!numberString)
+                    break;
+                let number = parseInt(numberString);
+                this.game.restart(WordListManager.getWordOnIndex(number));
+                this.createInterface();
+                break;
+
+            case BrowserShortcut.GiveUp:
+                const targetChars = [];
+                for (let i = 0; i < this.game.board.targetWord.length; i++)
+                    targetChars.push(new WordleCharacter(this.game.board.targetWord[i].toUpperCase(), WordleCharacterState.Green));
+                this.board.setWord(this.game.board.currentWordIndex, targetChars);
+                this._changeUiAt = this.game.board.currentWordIndex;
+                this.game.giveUp();
+                break;
+
+            case BrowserShortcut.HostGame:
+                BrowserClient.host().then(v => console.log(v.sessionId));
+                break;
+            case BrowserShortcut.JoinGame:
+                const sessionId = prompt("Session id:");
+                if (sessionId)
+                    BrowserClient.join(sessionId).then(v => console.log(v.sessionId));
+                break;
+        }
+    }
+
     protected update(): void {
         const key = this.keyboard.getCurrentKey();
         if (key !== "" && this.board.wordAnimation.isDone()) {
