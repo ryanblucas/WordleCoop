@@ -4,7 +4,6 @@
 //  Browser backend for Wordle Coop
 //
 
-import { connect } from "tls";
 import { CoopClient } from "../coop.js";
 import { WordleCharacter, WordleCharacterState, WordleGame } from "../wordle.js";
 import { WordListManager } from "../wordList.js";
