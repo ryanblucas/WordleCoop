@@ -4,6 +4,12 @@
 //  WebRTC client
 //
 
+export enum CoopState {
+    Connecting,
+    Connected,
+    Closed,
+}
+
 /**
  * Represents the connection between another client
  */
@@ -122,10 +128,41 @@ export class CoopClient {
     private static readonly mainDataChannelLabel = "WordleGame";
     private static readonly officialSignalServerAddr = "ws://localhost:25566";
 
-    public tillReady(): Promise<CoopClient> {
+    public get sessionId(): string {
+        return this._sessionId;
+    }
+
+    public get state(): CoopState {
         if (this._channel.readyState === "open")
+            return CoopState.Connected;
+        else if (this._channel.readyState === "closed" || this._channel.readyState === "closing")
+            return CoopState.Closed;
+        return CoopState.Connecting;
+    }
+
+    /**
+     * Creates a promise to wait for when this connection is ready.
+     * If the connection is closed or becomes closed, it will return a rejected promise.
+     * @returns A promise with this client as its parameter.
+     */
+    public whenReady(): Promise<CoopClient> {
+        if (this.state === CoopState.Connected)
             return Promise.resolve(this);
-        const res = new Promise<CoopClient>(e => this._channel.addEventListener("open", v => e(this)));
+        else if (this.state === CoopState.Closed)
+            return Promise.reject("Client closed.");
+        const res = new Promise<CoopClient>((resolve, reject) => {
+            // TO DO: there should be at least two events to listen to, right? One for the channel and connection?
+            this._channel.addEventListener("open", _ => resolve(this))
+            this._channel.addEventListener("error", _ => reject("Data channel error"));
+            this._channel.addEventListener("closing", _ => reject("Data channel closing"));
+            this._channel.addEventListener("close", _ => reject("Data channel closed"));
+            this._connection.addEventListener("icecandidateerror", _ => reject("ICE error"));
+            this._connection.addEventListener("connectionstatechange", e => {
+                // Failed and disconnected refer to ICE transports. TO DO: I *think* it can let the connection handle those.
+                if (this._connection.connectionState === "closed")
+                    reject("Connection closed");
+            });
+        });
         return res;
     }
 
@@ -140,10 +177,6 @@ export class CoopClient {
         this._queuedMessages = new Map<string, any>();
 
         this._channel.addEventListener("message", this.onMessage.bind(this));
-    }
-
-    public get sessionId(): string {
-        return this._sessionId;
     }
 
     /**
@@ -169,17 +202,15 @@ export class CoopClient {
     }
 
     private static createSignalLoop(connection: RTCPeerConnection, ws: WebSocket, hosting: boolean): void {
-        // TO DO: add error handler for when the websocket disconnects or when the other user disconnects.
-        let completed = false;
+        let completedCount = 0;
         connection.onicecandidate = ev => {
             if (!ev.candidate) {
                 ws.send("Complete");
                 connection.onicecandidate = null;
-                if (completed) {
+                if (++completedCount >= 2) {
                     ws.close();
                     return;
                 }
-                completed = true;
             }
             else {
                 ws.send(`IceCandidate\n${ev.candidate.sdpMid}\n${ev.candidate.candidate}`);
@@ -206,16 +237,21 @@ export class CoopClient {
                         connection.createAnswer().then(onDescriptionCreation);
                     break;
                 case "Complete":
-                    if (completed) {
+                    if (++completedCount >= 2) {
                         ws.close();
                         return;
                     }
-                    completed = true;
                     break;
             }
             if (args[0] === "ClientJoin" && hosting)
                 connection.createOffer().then(onDescriptionCreation);
         };
+        ws.onclose = _ => {
+            if (completedCount < 2) {
+                console.log("WebSocket closed mid-signal session.");
+                connection.close();
+            }
+        }
     }
 
     /**

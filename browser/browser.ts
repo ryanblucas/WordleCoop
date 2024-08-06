@@ -510,7 +510,7 @@ export class BrowserSingleplayerState extends BrowserGameState {
 
             case BrowserShortcut.HostGame:
                 CoopClient.host().then(i => {
-                    this.nextState = new BrowserWaitingState(i.tillReady().then(j => new BrowserCoopState(j)), this);
+                    this.nextState = new BrowserWaitingState(i.whenReady().then(j => new BrowserCoopState(j)), this);
                     prompt("Session id:", i.sessionId);
                 });
                 break;
@@ -518,7 +518,7 @@ export class BrowserSingleplayerState extends BrowserGameState {
             case BrowserShortcut.JoinGame:
                 const sessionId = prompt("Session id:");
                 if (sessionId)
-                    CoopClient.join(sessionId).then(i => this.nextState = new BrowserWaitingState(i.tillReady().then(j => new BrowserCoopState(j)), this));
+                    CoopClient.join(sessionId).then(i => this.nextState = new BrowserWaitingState(i.whenReady().then(j => new BrowserCoopState(j)), this));
                 break;
         }
     }
@@ -576,7 +576,10 @@ export class BrowserWaitingState extends BrowserState {
 
         this._background = new BrowserFramebuffer(1, 1);
         this._promise.then(v => this._nextState = v);
-        this._promise.catch(v => this._nextState = this._prevState);
+        this._promise.catch(e => {
+            this._nextState = this._prevState;
+            alert(`Connection error: ${e}`);
+        });
     }
 
     public hasQueuedState(): boolean {
