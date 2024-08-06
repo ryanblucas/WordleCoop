@@ -7,11 +7,11 @@
 /**
  * Represents the connection between another client
  */
-export class BrowserClient {
+export class CoopClient {
     private _connection: RTCPeerConnection;
     private _channel: RTCDataChannel;
 
-    private _callbacks: Map<string, (msg: any, client: BrowserClient) => void>;
+    private _callbacks: Map<string, (msg: any, client: CoopClient) => void>;
     private _protocol: Map<string, any>;
     private _protocolFinished: boolean = false;
 
@@ -21,12 +21,14 @@ export class BrowserClient {
 
     /**
      * Creates a protocol between us and the other client.
-     * @param name Name of the protocol
+     * @param name Name of the protocol. This cannot contain spaces.
      * @param obj A sample object. This is used for verifying types in messages both incoming and outgoing.
      * @param callback User-defined callback for when the other client sends this message.
      * @returns This BrowserClient object, for chaining.
      */
-    public addTwoWayProtocol(name: string, obj: any, callback: (msg: any, client: BrowserClient) => void): BrowserClient {
+    public addTwoWayProtocol(name: string, obj: any, callback: (msg: any, client: CoopClient) => void): CoopClient {
+        if (name.includes(' '))
+            throw new Error("Protocol name must not contain spaces.");
         if (this._protocolFinished)
             throw new Error("Protocol gathering is completed, yet addTwoWayProtocol was called.");
         this._channel.send(`ProtocolAdd ${name} ${JSON.stringify(obj)}`);
@@ -115,10 +117,10 @@ export class BrowserClient {
     private static readonly mainDataChannelLabel = "WordleGame";
     private static readonly officialSignalServerAddr = "ws://localhost:25566";
 
-    public tillReady(): Promise<BrowserClient> {
+    public tillReady(): Promise<CoopClient> {
         if (this._channel.readyState === "open")
             return Promise.resolve(this);
-        const res = new Promise<BrowserClient>(e => this._channel.addEventListener("open", v => e(this)));
+        const res = new Promise<CoopClient>(e => this._channel.addEventListener("open", v => e(this)));
         return res;
     }
 
@@ -127,7 +129,7 @@ export class BrowserClient {
         this._channel = channel;
         this._sessionId = sessionId;
 
-        this._callbacks = new Map<string, (msg: any, client: BrowserClient) => void>();
+        this._callbacks = new Map<string, (msg: any, client: CoopClient) => void>();
         this._protocol = new Map<string, any>();
         this._otherProtocol = new Map<string, any>();
         this._queuedMessages = new Map<string, any>();
@@ -144,7 +146,7 @@ export class BrowserClient {
      * @param val The string to be sent to the signaling server
      * @returns The response the server sent.
      */
-    public static async poll(val: string, signalAddr: string = BrowserClient.officialSignalServerAddr): Promise<string> {
+    public static async poll(val: string, signalAddr: string = CoopClient.officialSignalServerAddr): Promise<string> {
         const ws = new WebSocket(signalAddr);
         await new Promise((e) => { ws.addEventListener("open", e); });
         ws.send(val);
@@ -203,7 +205,7 @@ export class BrowserClient {
      * Creates a BrowserClient for hosting.
      * @returns The client, with the code property filled out.
      */
-    public static async host(signalAddr: string = BrowserClient.officialSignalServerAddr): Promise<BrowserClient> {
+    public static async host(signalAddr: string = CoopClient.officialSignalServerAddr): Promise<CoopClient> {
         const ws = new WebSocket(signalAddr);
         await new Promise((e) => { ws.addEventListener("open", e); });
 
@@ -215,18 +217,18 @@ export class BrowserClient {
         ws.send(`JoinSession\n${sessionId}`);
 
         const connection = new RTCPeerConnection();
-        const channel = connection.createDataChannel(BrowserClient.mainDataChannelLabel);
+        const channel = connection.createDataChannel(CoopClient.mainDataChannelLabel);
 
         this.createSignalLoop(connection, ws, true);
 
-        return new BrowserClient(connection, channel, sessionId);
+        return new CoopClient(connection, channel, sessionId);
     }
 
     /**
      * Creates a BrowserClient for joining an existing session. Both users must share the same signal address.
      * @returns The client, with the code property filled out.
      */
-    public static async join(sessionId: string, signalAddr: string = BrowserClient.officialSignalServerAddr): Promise<BrowserClient> {
+    public static async join(sessionId: string, signalAddr: string = CoopClient.officialSignalServerAddr): Promise<CoopClient> {
         if (!this.validateSessionId(sessionId))
             throw new Error(`Invalid session ID \"${sessionId}\", aborting join.`);
         const ws = new WebSocket(signalAddr);
@@ -238,6 +240,6 @@ export class BrowserClient {
 
         this.createSignalLoop(connection, ws, false);
 
-        return new BrowserClient(connection, (await channelEvent).channel, sessionId);
+        return new CoopClient(connection, (await channelEvent).channel, sessionId);
     }
 }

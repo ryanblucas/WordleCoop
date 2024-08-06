@@ -5,7 +5,7 @@
 //
 
 import { connect } from "tls";
-import { BrowserClient } from "../coop.js";
+import { CoopClient } from "../coop.js";
 import { WordleCharacter, WordleCharacterState, WordleGame } from "../wordle.js";
 import { WordListManager } from "../wordList.js";
 import { BrowserCharAnimation, BrowserFramebuffer, BrowserRectangle, BrowserRegion, BrowserRenderAnimation, BrowserRenderTarget, BrowserShakeAnimation, BrowserUIFactory, BrowserWinAnimation, BrowserWordAnimation } from "./render.js";
@@ -510,7 +510,7 @@ export class BrowserSingleplayerState extends BrowserGameState {
                 break;
 
             case BrowserShortcut.HostGame:
-                BrowserClient.host().then(i => {
+                CoopClient.host().then(i => {
                     this.nextState = new BrowserWaitingState(i.tillReady().then(j => new BrowserCoopState(j)), this);
                     prompt("Session id:", i.sessionId);
                 });
@@ -519,7 +519,7 @@ export class BrowserSingleplayerState extends BrowserGameState {
             case BrowserShortcut.JoinGame:
                 const sessionId = prompt("Session id:");
                 if (sessionId)
-                    BrowserClient.join(sessionId).then(i => this.nextState = new BrowserWaitingState(i.tillReady().then(j => new BrowserCoopState(j)), this));
+                    CoopClient.join(sessionId).then(i => this.nextState = new BrowserWaitingState(i.tillReady().then(j => new BrowserCoopState(j)), this));
                 break;
         }
     }
@@ -618,10 +618,10 @@ export class BrowserWaitingState extends BrowserState {
 }
 
 export class BrowserCoopState extends BrowserGameState {
-    private _connection: BrowserClient;
+    private _connection: CoopClient;
     private _changeUiAt: number = -1;
 
-    public constructor(connection: BrowserClient) {
+    public constructor(connection: CoopClient) {
         super();
         this._connection = connection;
         console.log(`Connected to session: ${connection.sessionId}. Sending protocol now.`);
