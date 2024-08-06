@@ -371,6 +371,7 @@ export abstract class BrowserGameState extends BrowserState {
     protected menuButton: BrowserRectangle;
     protected message: string = "";
     protected messagePos: number;
+    protected gameName: string;
 
     protected region: BrowserRegion;
     protected wx: number = 1;
@@ -391,9 +392,10 @@ export abstract class BrowserGameState extends BrowserState {
         this.transform = new BrowserUIFactory().createTransform(this.region, this.region.centerRegion(this.wx, this.wy));
     }
 
-    public constructor() {
+    public constructor(gameName: string) {
         super();
         this.game = new WordleGame();
+        this.gameName = gameName;
 
         // -- mandatory for TypeScript
         this.transform = new DOMMatrix();
@@ -463,12 +465,19 @@ export abstract class BrowserGameState extends BrowserState {
         if (this.game.guidedMode) {
             ctx.textAlign = "left";
             ctx.font = "10px Sans-Serif";
-            ctx.fillText("Guided mode -- Shift+T to toggle", 0, this.board.region.bottom + 4);
+            ctx.fillText("Guided mode -- Shift+T/Menu to toggle", 0, this.board.region.bottom + 4, this.region.wx / 2);
         }
+        ctx.textAlign = "right";
+        ctx.font = "10px Sans-Serif";
+        ctx.fillText(`${this.gameName} game`, this.region.right, this.board.region.bottom + 4, this.region.wx / 2);
     }
 }
 
 export class BrowserSingleplayerState extends BrowserGameState {
+    public constructor() {
+        super("Singleplayer");
+    }
+
     private _changeUiAt: number = -1;
     protected shortcut(shortcut: BrowserShortcut) {
         switch (shortcut) {
@@ -630,7 +639,7 @@ export class BrowserCoopState extends BrowserGameState {
     }
 
     public constructor(connection: CoopClient) {
-        super();
+        super("Co-op");
         this._connection = connection;
         console.log(`Connected to session: ${connection.sessionId}. Sending protocol now.`);
 
