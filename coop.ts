@@ -22,7 +22,7 @@ export class CoopClient {
     /**
      * Creates a protocol between us and the other client.
      * @param name Name of the protocol. This cannot contain spaces.
-     * @param obj A sample object. This is used for verifying types in messages both incoming and outgoing.
+     * @param obj A sample object. This is used for verifying types in messages both incoming and outgoing. This cannot be a function, symbol, or undefined.
      * @param callback User-defined callback for when the other client sends this message.
      * @returns This BrowserClient object, for chaining.
      */
@@ -31,6 +31,8 @@ export class CoopClient {
             throw new Error("Protocol name must not contain spaces.");
         if (this._protocolFinished)
             throw new Error("Protocol gathering is completed, yet addTwoWayProtocol was called.");
+        if (typeof obj === "function" || typeof obj === "symbol" || typeof obj === "undefined")
+            throw new Error("Protocol sample object cannot be a function, symbol, or undefined.");
         this._channel.send(`ProtocolAdd ${name} ${JSON.stringify(obj)}`);
         this._protocol.set(name, obj);
         this._callbacks.set(name, callback);
@@ -40,16 +42,19 @@ export class CoopClient {
 
     private verifyMessage(name: string, obj: any): void {
         let result = this._protocol.has(name) && typeof obj === typeof this._protocol.get(name);
-        const entries = Object.entries(obj);
-        let matching = 0;
-        for (let i = 0; i < entries.length && result; i++) {
-            const verifiedEntries = Object.entries(this._protocol.get(name));
-            const matchingKey = verifiedEntries.find(v => v[0] === entries[i][0]);
-            result = result && !!matchingKey && typeof matchingKey[1] === typeof entries[i][1];
-            if (matchingKey)
-                matching++;
+        if (typeof obj === "object") {
+            const entries = Object.entries(obj);
+            let matching = 0;
+            for (let i = 0; i < entries.length && result; i++) {
+                const verifiedEntries = Object.entries(this._protocol.get(name));
+                const matchingKey = verifiedEntries.find(v => v[0] === entries[i][0]);
+                result = result && !!matchingKey && typeof matchingKey[1] === typeof entries[i][1];
+                if (matchingKey)
+                    matching++;
+            }
+            result = result && entries.length === matching;
         }
-        if (!result || entries.length !== matching) {
+        if (!result) {
             this._connection.close();
             throw new Error(`Failed to verify message of type \"${name}.\"`);
         }

@@ -627,17 +627,60 @@ export class BrowserCoopState extends BrowserGameState {
         console.log(`Connected to session: ${connection.sessionId}. Sending protocol now.`);
 
         this._connection
-            .addTwoWayProtocol("String", ' ', msg => console.log(`User sent character \"${msg}\"`))
-            .addTwoWayProtocol("Object", { num: 0, str: ' ' }, msg => console.log(msg))
+            .addTwoWayProtocol("PushChar", "", this.physPushChar.bind(this))
+            .addTwoWayProtocol("PopChar", "", this.physPopChar.bind(this))
+            .addTwoWayProtocol("PushWord", "", this.physPushWord.bind(this))
             .finishProtocol();
+    }
+
+    private physPushChar(char: string): void {
+        this._changeUiAt = this.game.board.currentWordIndex;
+        const charPos = this.game.board.currentCharacterIndex;
+        if (this.game.onPushCharacter(char))
+            this.board.setCharacter(this.game.board.currentWordIndex, charPos, char);
+    }
+
+    private physPopChar(): void {
+        this._changeUiAt = this.game.board.currentWordIndex;
+        this.game.onPopCharacter();
+        this.board.setCharacter(this.game.board.currentWordIndex, this.game.board.currentCharacterIndex, ' ');
+    }
+
+    private physPushWord(): void {
+        this._changeUiAt = this.game.board.currentWordIndex;
+        const start = this.game.board.currentWordIndex;
+        this.game.onPushWord();
+        this.board.setWord(start, this.game.board.data[start].word);
     }
 
     protected update(): void {
         const key = this.keyboard.getCurrentKey();
-        if (key === "Backspace")
-            this._connection.sendMessage("Object", { num: 54, str: "Hi" });
-        else if (key !== "")
-            this._connection.sendMessage("String", key);
+        if (key !== "" && this.board.wordAnimation.isDone()) {
+            if (this.game.startQueuedGame())
+                this.createInterface();
+            if (key === "Enter") {
+                this.physPushWord();
+                this._connection.sendMessage("PushWord", this.game.board.data[this._changeUiAt].join());
+            }
+            else if (key === "Backspace") {
+                this.physPopChar();
+                this._connection.sendMessage("PopChar", this.game.board.data[this._changeUiAt].join());
+            }
+            else {
+                this.physPushChar(key);
+                this._connection.sendMessage("PushChar", key);
+            }
+        }
+
+        if (this._changeUiAt !== -1 && this.board.wordAnimation.renderMessageDuring) {
+            this.message = this.game.popMessage();
+            this.game.board.data[this._changeUiAt].word.forEach(v => {
+                const cell = this.keyboard.getCharRectangle(v.character);
+                if (cell.styleList.indexOf(cell.style) < v.state)
+                    cell.style = cell.styleList[v.state];
+            });
+            this._changeUiAt = -1;
+        }
     }
 
     protected shortcut(shortcut: BrowserShortcut): void {
