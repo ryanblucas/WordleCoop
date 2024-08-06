@@ -592,6 +592,7 @@ export class BrowserWaitingState extends BrowserState {
 
     public handleResize(wx: number, wy: number): void {
         this._background.resize(wx, wy);
+        this._prevState.handleResize(wx, wy);
         const unblurred = new BrowserFramebuffer(wx, wy);
         this._prevState.render(unblurred.context, 0.0);
         this._background.context.filter = "blur(2px)";
@@ -623,6 +624,11 @@ export class BrowserCoopState extends BrowserGameState {
     private _connection: CoopClient;
     private _changeUiAt: number = -1;
 
+    private onClose(): void {
+        alert("Connection closed, moving to a singleplayer state.");
+        this.nextState = new BrowserSingleplayerState();
+    }
+
     public constructor(connection: CoopClient) {
         super();
         this._connection = connection;
@@ -633,6 +639,7 @@ export class BrowserCoopState extends BrowserGameState {
             .addTwoWayProtocol("PopChar", "", this.physPopChar.bind(this))
             .addTwoWayProtocol("PushWord", "", this.physPushWord.bind(this))
             .finishProtocol();
+        this._connection.onClose = this.onClose;
     }
 
     private physPushChar(char: string): void {

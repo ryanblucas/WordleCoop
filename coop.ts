@@ -151,19 +151,18 @@ export class CoopClient {
         else if (this.state === CoopState.Closed)
             return Promise.reject("Client closed.");
         const res = new Promise<CoopClient>((resolve, reject) => {
-            // TO DO: there should be at least two events to listen to, right? One for the channel and connection?
-            this._channel.addEventListener("open", _ => resolve(this))
-            this._channel.addEventListener("error", _ => reject("Data channel error"));
-            this._channel.addEventListener("closing", _ => reject("Data channel closing"));
+            this._channel.addEventListener("open", _ => resolve(this));
             this._channel.addEventListener("close", _ => reject("Data channel closed"));
-            this._connection.addEventListener("icecandidateerror", _ => reject("ICE error"));
-            this._connection.addEventListener("connectionstatechange", e => {
-                // Failed and disconnected refer to ICE transports. TO DO: I *think* it can let the connection handle those.
-                if (this._connection.connectionState === "closed")
-                    reject("Connection closed");
-            });
         });
         return res;
+    }
+
+    private default(): void { }
+    public onClose: (client: CoopClient) => void = this.default;
+
+    public close(): void {
+        this._channel.close();
+        this._connection.close();
     }
 
     private constructor(connection: RTCPeerConnection, channel: RTCDataChannel, sessionId: string) {
@@ -177,6 +176,7 @@ export class CoopClient {
         this._queuedMessages = new Map<string, any>();
 
         this._channel.addEventListener("message", this.onMessage.bind(this));
+        this._channel.addEventListener("close", _ => this.onClose(this));
     }
 
     /**
