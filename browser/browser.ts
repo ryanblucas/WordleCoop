@@ -470,8 +470,8 @@ export abstract class BrowserGameState extends BrowserState {
 
 export class BrowserSingleplayerState extends BrowserGameState {
     private _changeUiAt: number = -1;
-    protected shortcut(key: BrowserShortcut) {
-        switch (key) {
+    protected shortcut(shortcut: BrowserShortcut) {
+        switch (shortcut) {
             case BrowserShortcut.ToggleGuidedMode:
                 this.game.guidedMode = !this.game.guidedMode;
                 break;
@@ -639,7 +639,7 @@ export class BrowserCoopState extends BrowserGameState {
             .addTwoWayProtocol("PopChar", "", this.physPopChar.bind(this))
             .addTwoWayProtocol("PushWord", "", this.physPushWord.bind(this))
             .finishProtocol();
-        this._connection.onClose = this.onClose;
+        this._connection.onClose = this.onClose.bind(this);
     }
 
     private physPushChar(char: string): void {
@@ -693,6 +693,44 @@ export class BrowserCoopState extends BrowserGameState {
     }
 
     protected shortcut(shortcut: BrowserShortcut): void {
+        switch (shortcut) {
+            case BrowserShortcut.ToggleGuidedMode:
+                this.game.guidedMode = !this.game.guidedMode;
+                break;
+
+            // TO DO: add protocol for both users to agree on setting word
+            // TO DO: add protocol for both users to agree on giving up
+
+            case BrowserShortcut.Singleplayer: {
+                const ans = prompt("Are you sure you want to disconnect? (y/n)");
+                if (ans && ans.toLowerCase() === 'y') {
+                    this._connection.close();
+                    this.nextState = new BrowserSingleplayerState();
+                }
+                break;
+            }
+
+            case BrowserShortcut.HostGame: {
+                const ans = prompt("Are you sure you want to disconnect? (y/n)");
+                if (!ans || ans.toLowerCase() !== 'y')
+                    break;
+                CoopClient.host().then(i => {
+                    this.nextState = new BrowserWaitingState(i.whenReady().then(j => new BrowserCoopState(j)), this);
+                    prompt("Session id:", i.sessionId);
+                });
+                break;
+            }
+
+            case BrowserShortcut.JoinGame: {
+                const ans = prompt("Are you sure you want to disconnect? (y/n)");
+                if (!ans || ans.toLowerCase() !== 'y')
+                    break;
+                const sessionId = prompt("Session id:");
+                if (sessionId)
+                    CoopClient.join(sessionId).then(i => this.nextState = new BrowserWaitingState(i.whenReady().then(j => new BrowserCoopState(j)), this));
+                break;
+            }
+        }
     }
 }
 
