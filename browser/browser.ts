@@ -619,14 +619,25 @@ export class BrowserWaitingState extends BrowserState {
 
 export class BrowserCoopState extends BrowserGameState {
     private _connection: BrowserClient;
+    private _changeUiAt: number = -1;
 
     public constructor(connection: BrowserClient) {
         super();
         this._connection = connection;
-        console.log("Connected to session: " + connection.sessionId + ".");
+        console.log(`Connected to session: ${connection.sessionId}. Sending protocol now.`);
+
+        this._connection
+            .addTwoWayProtocol("String", ' ', msg => console.log(`User sent character \"${msg}\"`))
+            .addTwoWayProtocol("Object", { num: 0, str: ' ' }, msg => console.log(msg))
+            .finishProtocol();
     }
 
     protected update(): void {
+        const key = this.keyboard.getCurrentKey();
+        if (key === "Backspace")
+            this._connection.sendMessage("Object", { num: 54, str: "Hi" });
+        else if (key !== "")
+            this._connection.sendMessage("String", key);
     }
 
     protected shortcut(shortcut: BrowserShortcut): void {
