@@ -10,8 +10,8 @@
     "allowJs": true,
     "checkJs": false,
     "module": "es2022",
-    "outDir": "C:\\xampp\\htdocs\\wordleCoop"    /* for browser compilation */
-    //"outDir": ""                                 /* for console compilation */
+    //"outDir": "C:\\xampp\\htdocs\\wordleCoop"    /* for browser compilation */
+    "outDir": ""                                 /* for console compilation */
   },
 
   "exclude": [

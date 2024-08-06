@@ -170,11 +170,16 @@ export class CoopClient {
 
     private static createSignalLoop(connection: RTCPeerConnection, ws: WebSocket, hosting: boolean): void {
         // TO DO: add error handler for when the websocket disconnects or when the other user disconnects.
-        // TO DO: close websocket when finished
+        let completed = false;
         connection.onicecandidate = ev => {
             if (!ev.candidate) {
                 ws.send("Complete");
                 connection.onicecandidate = null;
+                if (completed) {
+                    ws.close();
+                    return;
+                }
+                completed = true;
             }
             else {
                 ws.send(`IceCandidate\n${ev.candidate.sdpMid}\n${ev.candidate.candidate}`);
@@ -199,6 +204,13 @@ export class CoopClient {
                     connection.setRemoteDescription({ sdp: args.slice(1, -1).join("\n"), type: descriptionType });
                     if (!hosting)
                         connection.createAnswer().then(onDescriptionCreation);
+                    break;
+                case "Complete":
+                    if (completed) {
+                        ws.close();
+                        return;
+                    }
+                    completed = true;
                     break;
             }
             if (args[0] === "ClientJoin" && hosting)

@@ -20,7 +20,7 @@ function generateSessionId(): string {
 }
 
 const server = new WebSocketServer({ port: 25566 });
-const sessions = new Map<string, { users: Array<WebSocket>, timestamp: number }>();
+const sessions = new Map<string, { users: Array<WebSocket>, usersCompleted: number, timestamp: number }>();
 const sessionLengthMs = 300000; // five minutes in milliseconds, this is how long a session can last
 // TO DO: implement ^^
 
@@ -33,13 +33,14 @@ server.addListener("connection", (client) => {
         try {
             const args = msg.data.toString().split('\n');
             switch (args[0]) {
-                case "RequestSessionId":
+                case "RequestSessionId": {
                     const id = generateSessionId();
                     console.log(`Client (${clientName}) requested session ID: ${id}.`);
                     client.send(id);
-                    sessions.set(id, { users: new Array<WebSocket>(), timestamp: Date.now() });
+                    sessions.set(id, { users: new Array<WebSocket>(), usersCompleted: 0, timestamp: Date.now() });
                     break;
-                case "JoinSession":
+                }
+                case "JoinSession": {
                     if (sessionId !== "" && sessions.has(sessionId)) {
                         const arr = sessions.get(sessionId)!.users;
                         const i = arr.findIndex(a => a === client);
@@ -58,18 +59,27 @@ server.addListener("connection", (client) => {
                     sessionId = args[1];
                     console.log(`Client (${clientName}) joined session: ${sessionId}.`);
                     break;
-                case "IceCandidate":
-                case "Description":
-                    sessions.get(sessionId)!.users.forEach(v => {
-                        if (v !== client) {
-                            v.send(msg.data.toString());
-                            console.log(`Sending ${msg.data.toString()} to client (${v.url}) from client (${clientName}).`);
-                        }
-                    });
-                    break;
-                case "Complete":
+                }
 
+                // If there truly needs to be more than two users per signaling session (unlikely as p2p connections between multiple clients isn't a great
+                // idea anyway) there needs to be a client name given to the user along with the session ID. Otherwise, who do these messages belong to? *TO DO*
+
+                case "IceCandidate":
+                case "Description": {
+                    sessions.get(sessionId)!.users.filter(v => v !== client).forEach(v => v.send(msg.data.toString()));
                     break;
+                }
+                case "Complete": {
+                    const session = sessions.get(sessionId)!;
+                    session.users.filter(v => v !== client).forEach(v => v.send(msg.data.toString()));
+                    session.usersCompleted++;
+                    if (session.users.length === session.usersCompleted) {
+                        for (let i = 0; i < session.users.length; i++)
+                            session.users[i].close();
+                        sessions.delete(sessionId);
+                        console.log(`Closing completed session: ${sessionId}.`);
+                    }
+                }
             }
         }
         catch (error) {
