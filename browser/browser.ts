@@ -633,6 +633,10 @@ export class BrowserCoopState extends BrowserGameState {
     private _connection: CoopClient;
     private _changeUiAt: number = -1;
     private _queuedWord: string | undefined;
+    /**
+     * Determines if it is our turn in picking the next word or not. Non-zero if so, zero if its up to the other user.
+     */
+    private _ourTurn: number = 0;
 
     private onClose(): void {
         alert("Connection closed, moving to a singleplayer state.");
@@ -648,16 +652,37 @@ export class BrowserCoopState extends BrowserGameState {
             .addTwoWayProtocol("PushChar", "", this.physPushChar.bind(this))
             .addTwoWayProtocol("PopChar", "", this.physPopChar.bind(this))
             .addTwoWayProtocol("PushWord", "", this.physPushWord.bind(this))
-
-            // Asks if changing the word to the argument is okay
             .addTwoWayProtocol("WordAsk", "", this.wordAskHandler.bind(this))
-            // Response to WordAsk from the other client, either "Yes" or "No." Assume if "Yes," the other client has already changed the word.
             .addTwoWayProtocol("WordResponse", "", this.wordResponseHandler.bind(this))
-
+            .addTwoWayProtocol("DetermineStart", 0, this.determineStartHandler.bind(this))
             .finishProtocol();
         this._connection.onClose = this.onClose.bind(this);
+        this._ourTurn = Math.random() * 100;
+        this._connection.sendMessage("DetermineStart", this._ourTurn);
     }
 
+    /**
+     * Each client sends a number between 0-100, and whichever client has the highest number goes first.
+     * @param num Number from the other client
+     */
+    private determineStartHandler(num: number): void {
+        if (this._ourTurn < num) {
+            console.log("The other client determines what word goes next.");
+            this._ourTurn = 0;
+            return;
+        }
+        else if (this._ourTurn === num) {
+            this._ourTurn = Math.random() * 100;
+            this._connection.sendMessage("DetermineStart", this._ourTurn);
+            return;
+        }
+        console.log("This client determines what word goes next.");
+    }
+
+    /**
+     * Response to WordAsk from the other client, either "Yes" or "No." Assume if "Yes," the other client has already changed the word.
+     * @param response Response from other client
+     */
     private wordResponseHandler(response: string): void {
         if (!this._queuedWord) {
             console.log("Other user sent a WordResponse when no WordAsk was sent on our part.");
@@ -672,15 +697,23 @@ export class BrowserCoopState extends BrowserGameState {
         this._queuedWord = undefined;
     }
 
+    /**
+     * Asks if changing the word to the argument is okay
+     * @param word Word to change to from other client
+     */
     private wordAskHandler(word: string): void {
         const wordIndex = WordListManager.getWordIndex(word);
-        if (wordIndex === -1 || prompt("The other user wishes to change the word. Let them? (y/n)") !== 'y') {
+        const finishedGame = this.game.isWon() || this.game.isLost();
+        if (wordIndex === -1 || (finishedGame && this._ourTurn)
+            || (!finishedGame && prompt("The other user wishes to change the word. Let them? (y/n)") !== 'y')) {
             this._connection.sendMessage("WordResponse", "No");
             return;
         }
         this._connection.sendMessage("WordResponse", "Yes");
         this.game.restart(word);
         this.createInterface();
+        if (finishedGame)
+            this._ourTurn = new Number(!this._ourTurn).valueOf();
     }
 
     private physPushChar(char: string): void {
@@ -706,8 +739,15 @@ export class BrowserCoopState extends BrowserGameState {
     protected update(): void {
         const key = this.keyboard.getCurrentKey();
         if (key !== "" && this.board.wordAnimation.isDone()) {
-            if (this.game.startQueuedGame())
-                this.createInterface();
+            if (this.game.isWon() || this.game.isLost()) {
+                if (this._ourTurn) {
+                    this._queuedWord = WordListManager.getRandomWord();
+                    this._connection.sendMessage("WordAsk", this._queuedWord);
+                    this._ourTurn = 0;
+                }
+                return;
+            }
+
             if (key === "Enter") {
                 this.physPushWord();
                 this._connection.sendMessage("PushWord", this.game.board.data[this._changeUiAt].join());
