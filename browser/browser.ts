@@ -632,6 +632,7 @@ export class BrowserWaitingState extends BrowserState {
 export class BrowserCoopState extends BrowserGameState {
     private _connection: CoopClient;
     private _changeUiAt: number = -1;
+    private _queuedWord: string | undefined;
 
     private onClose(): void {
         alert("Connection closed, moving to a singleplayer state.");
@@ -647,8 +648,39 @@ export class BrowserCoopState extends BrowserGameState {
             .addTwoWayProtocol("PushChar", "", this.physPushChar.bind(this))
             .addTwoWayProtocol("PopChar", "", this.physPopChar.bind(this))
             .addTwoWayProtocol("PushWord", "", this.physPushWord.bind(this))
+
+            // Asks if changing the word to the argument is okay
+            .addTwoWayProtocol("WordAsk", "", this.wordAskHandler.bind(this))
+            // Response to WordAsk from the other client, either "Yes" or "No." Assume if "Yes," the other client has already changed the word.
+            .addTwoWayProtocol("WordResponse", "", this.wordResponseHandler.bind(this))
+
             .finishProtocol();
         this._connection.onClose = this.onClose.bind(this);
+    }
+
+    private wordResponseHandler(response: string): void {
+        if (!this._queuedWord) {
+            console.log("Other user sent a WordResponse when no WordAsk was sent on our part.");
+            return;
+        }
+        if (response !== "Yes") {
+            alert("Other user declined.");
+            return;
+        }
+        this.game.restart(this._queuedWord);
+        this.createInterface();
+        this._queuedWord = undefined;
+    }
+
+    private wordAskHandler(word: string): void {
+        const wordIndex = WordListManager.getWordIndex(word);
+        if (wordIndex === -1 || prompt("The other user wishes to change the word. Let them? (y/n)") !== 'y') {
+            this._connection.sendMessage("WordResponse", "No");
+            return;
+        }
+        this._connection.sendMessage("WordResponse", "Yes");
+        this.game.restart(word);
+        this.createInterface();
     }
 
     private physPushChar(char: string): void {
@@ -707,8 +739,24 @@ export class BrowserCoopState extends BrowserGameState {
                 this.game.guidedMode = !this.game.guidedMode;
                 break;
 
-            // TO DO: add protocol for both users to agree on setting word
-            // TO DO: add protocol for both users to agree on giving up
+            case BrowserShortcut.SetWordManual:
+                const word = prompt("Word:", WordListManager.getRandomWord());
+                if (word && WordListManager.getWordCoordinates(word)) {
+                    this._queuedWord = word;
+                    this._connection.sendMessage("WordAsk", this._queuedWord);
+                }
+                else
+                    alert("Word \"" + word + "\" not found.");
+                break;
+
+            case BrowserShortcut.SetWordNumber:
+                const numberString = prompt("Word number:", Math.floor(Math.random() * WordListManager.getTotalWordCount()).toString());
+                if (!numberString)
+                    break;
+                let number = parseInt(numberString);
+                this._queuedWord = WordListManager.getWordOnIndex(number);
+                this._connection.sendMessage("WordAsk", this._queuedWord);
+                break;
 
             case BrowserShortcut.Singleplayer: {
                 const ans = prompt("Are you sure you want to disconnect? (y/n)");
