@@ -655,10 +655,45 @@ export class BrowserCoopState extends BrowserGameState {
             .addTwoWayProtocol("WordAsk", "", this.wordAskHandler.bind(this))
             .addTwoWayProtocol("WordResponse", "", this.wordResponseHandler.bind(this))
             .addTwoWayProtocol("DetermineStart", 0, this.determineStartHandler.bind(this))
+            .addTwoWayProtocol("GiveUpAsk", "", this.giveUpAskHandler.bind(this))
+            .addTwoWayProtocol("GiveUpResponse", "", this.giveUpResponseHandler.bind(this))
             .finishProtocol();
         this._connection.onClose = this.onClose.bind(this);
         this._ourTurn = Math.random() * 100;
         this._connection.sendMessage("DetermineStart", this._ourTurn);
+    }
+
+    private physGiveUp(): void {
+        const targetChars = [];
+        for (let i = 0; i < this.game.board.targetWord.length; i++)
+            targetChars.push(new WordleCharacter(this.game.board.targetWord[i].toUpperCase(), WordleCharacterState.Green));
+        this.board.setWord(this.game.board.currentWordIndex, targetChars);
+        this._changeUiAt = this.game.board.currentWordIndex;
+        this.game.giveUp();
+    }
+
+    /**
+     * Response to GiveUpAsk.
+     * @param response "Yes" or "No," assume if "Yes" the other user has already given up.
+     */
+    private giveUpResponseHandler(response: string): void {
+        if (response !== "Yes") {
+            alert("Other user declined.");
+            return;
+        }
+        this.physGiveUp();
+    }
+
+    /**
+     * Asks if giving up is okay.
+     */
+    private giveUpAskHandler(): void {
+        if (this.game.isWon() || this.game.isLost() || prompt("The other user wants to give up. Let them? (y/n)")?.toLowerCase() !== 'y') {
+            this._connection.sendMessage("GiveUpResponse", "No");
+            return;
+        }
+        this._connection.sendMessage("GiveUpResponse", "Yes");
+        this.physGiveUp();
     }
 
     /**
@@ -705,7 +740,7 @@ export class BrowserCoopState extends BrowserGameState {
         const wordIndex = WordListManager.getWordIndex(word);
         const finishedGame = this.game.isWon() || this.game.isLost();
         if (wordIndex === -1 || (finishedGame && this._ourTurn)
-            || (!finishedGame && prompt("The other user wishes to change the word. Let them? (y/n)") !== 'y')) {
+            || (!finishedGame && prompt("The other user wishes to change the word. Let them? (y/n)")?.toLowerCase() !== 'y')) {
             this._connection.sendMessage("WordResponse", "No");
             return;
         }
@@ -740,14 +775,12 @@ export class BrowserCoopState extends BrowserGameState {
         const key = this.keyboard.getCurrentKey();
         if (key !== "" && this.board.wordAnimation.isDone()) {
             if (this.game.isWon() || this.game.isLost()) {
-                if (this._ourTurn) {
-                    this._queuedWord = WordListManager.getRandomWord();
-                    this._connection.sendMessage("WordAsk", this._queuedWord);
-                    this._ourTurn = 0;
-                }
-                return;
+                if (!this._ourTurn)
+                    return
+                this._queuedWord = WordListManager.getRandomWord();
+                this._connection.sendMessage("WordAsk", this._queuedWord);
+                this._ourTurn = 0;
             }
-
             if (key === "Enter") {
                 this.physPushWord();
                 this._connection.sendMessage("PushWord", this.game.board.data[this._changeUiAt].join());
@@ -796,6 +829,10 @@ export class BrowserCoopState extends BrowserGameState {
                 let number = parseInt(numberString);
                 this._queuedWord = WordListManager.getWordOnIndex(number);
                 this._connection.sendMessage("WordAsk", this._queuedWord);
+                break;
+
+            case BrowserShortcut.GiveUp:
+                this._connection.sendMessage("GiveUpAsk", "");
                 break;
 
             case BrowserShortcut.Singleplayer: {
