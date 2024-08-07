@@ -8,7 +8,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import crypto from "crypto";
 
 function generateSessionId(): string {
-    const arr = crypto.randomBytes(7);
+    const arr = crypto.randomBytes(5);
     let res = "", curr = 0;
     for (let i = 0; i < arr.length; i++) {
         curr += arr[i];
@@ -20,9 +20,8 @@ function generateSessionId(): string {
 }
 
 const server = new WebSocketServer({ port: 25566 });
-const sessions = new Map<string, { users: Array<WebSocket>, usersCompleted: number, timestamp: number }>();
+const sessions = new Map<string, { users: Array<{ socket: WebSocket, completed: boolean }>, timestamp: number }>();
 const sessionLengthMs = 300000; // five minutes in milliseconds, this is how long a session can last
-// TO DO: implement ^^
 
 server.addListener("connection", (client) => {
     const clientName = client.url; // this is usually undefined, TO DO
@@ -37,13 +36,13 @@ server.addListener("connection", (client) => {
                     const id = generateSessionId();
                     console.log(`Client (${clientName}) requested session ID: ${id}.`);
                     client.send(id);
-                    sessions.set(id, { users: new Array<WebSocket>(), usersCompleted: 0, timestamp: Date.now() });
+                    sessions.set(id, { users: new Array<{ socket: WebSocket, completed: boolean }>(), timestamp: Date.now() });
                     break;
                 }
                 case "JoinSession": {
                     if (sessionId !== "" && sessions.has(sessionId)) {
                         const arr = sessions.get(sessionId)!.users;
-                        const i = arr.findIndex(a => a === client);
+                        const i = arr.findIndex(a => a.socket === client);
                         if (i !== -1)
                             sessions.get(sessionId)!.users = arr.splice(i, 1);
                         console.log(`Client (${clientName}) already in session: ${sessionId}, removing...`);
@@ -54,8 +53,8 @@ server.addListener("connection", (client) => {
                         break;
                     }
                     for (let i = 0; i < session.users.length; i++)
-                        session.users[i].send(`ClientJoin`); // TO DO: use clientName as a parameter
-                    session.users.push(client);
+                        session.users[i].socket.send(`ClientJoin`); // TO DO: use clientName as a parameter
+                    session.users.push({ socket: client, completed: false });
                     sessionId = args[1];
                     console.log(`Client (${clientName}) joined session: ${sessionId}.`);
                     break;
@@ -66,19 +65,16 @@ server.addListener("connection", (client) => {
 
                 case "IceCandidate":
                 case "Description": {
-                    sessions.get(sessionId)!.users.filter(v => v !== client).forEach(v => v.send(msg.data.toString()));
+                    sessions.get(sessionId)!.users.filter(v => v.socket !== client).forEach(v => v.socket.send(msg.data.toString()));
                     break;
                 }
                 case "Complete": {
                     const session = sessions.get(sessionId)!;
-                    session.users.filter(v => v !== client).forEach(v => v.send(msg.data.toString()));
-                    session.usersCompleted++;
-                    if (session.users.length === session.usersCompleted) {
-                        for (let i = 0; i < session.users.length; i++)
-                            session.users[i].close();
-                        sessions.delete(sessionId);
-                        console.log(`Closing completed session: ${sessionId}.`);
-                    }
+                    const userIndex = session.users.findIndex(v => v.socket === client);
+                    session.users.forEach((v, i) => { if (i !== userIndex) v.socket.send(msg.data.toString()); });
+                    session.users[userIndex].completed = true;
+                    if (session.users.findIndex(v => !v.completed) === -1)
+                        session.users.forEach(v => v.socket.close());
                 }
             }
         }
@@ -86,4 +82,21 @@ server.addListener("connection", (client) => {
             console.log(`Message parse error from client (${clientName}), error (${error}).`);
         }
     });
+    client.addEventListener("close", ev => {
+        const session = sessions.get(sessionId)!;
+        console.log(`Client (${clientName}) left session: ${sessionId}.`);
+        session.users = session.users.filter(v => v.socket !== client);
+        if (session.users.length <= 0) {
+            sessions.delete(sessionId);
+            console.log(`Closing session: ${sessionId}.`);
+        }
+    });
 });
+
+setInterval(() => {
+    const startTime = Date.now();
+    sessions.forEach((i) => {
+        if (startTime - i.timestamp >= sessionLengthMs)
+            i.users.forEach(j => j.socket.close()); // This takes 30 seconds to actually close?
+    });
+}, 1000);
