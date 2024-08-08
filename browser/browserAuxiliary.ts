@@ -16,6 +16,19 @@ export abstract class BrowserState extends BrowserRenderTarget {
     public abstract render(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, delta: number): void;
 }
 
+/**
+ *  Browser shortcuts/actions. Values must be a capital letter.
+ */
+export enum BrowserShortcut {
+    ToggleGuidedMode = 'T',
+    SetWordManual = 'S',
+    SetWordNumber = 'A',
+    GiveUp = 'G',
+    JoinGame = 'J',
+    HostGame = 'H',
+    Singleplayer = 'P',
+}
+
 export abstract class BrowserGameState extends BrowserState {
     protected transform: DOMMatrix;
     protected keyboard: BrowserKeyboard;
@@ -150,19 +163,6 @@ export abstract class BrowserGameState extends BrowserState {
     }
 }
 
-/**
- *  Browser shortcuts/actions. Values must be a capital letter.
- */
-export enum BrowserShortcut {
-    ToggleGuidedMode = 'T',
-    SetWordManual = 'S',
-    SetWordNumber = 'A',
-    GiveUp = 'G',
-    JoinGame = 'J',
-    HostGame = 'H',
-    Singleplayer = 'P',
-}
-
 export class BrowserMenuState extends BrowserState {
     private _userExited: boolean = false;
     private _previous: BrowserState;
@@ -172,12 +172,35 @@ export class BrowserMenuState extends BrowserState {
     private _region: BrowserRegion;
     private _buttons: Array<BrowserRectangle>;
 
+    private createInterface(options: Array<string>): [Array<BrowserRectangle>, BrowserRegion] {
+        const font = "14px Sans-serif", space = 15, exitButtonSize = 6;
+        this._background.context.font = font;
+
+        const region = new BrowserRegion(0, 0, 0, space);
+        for (let i = 0; i < options.length; i++) {
+            const textMetrics = this._background.context.measureText(options[i]);
+            region.wx = Math.max(region.wx, textMetrics.width);
+            region.wy += textMetrics.emHeightDescent + space;
+        }
+        region.wx += space * 2;
+
+        const buttons: Array<BrowserRectangle> = [];
+        buttons.push(new BrowserRectangle(region.x, region.y, region.wx, region.wy, { style: "Gainsboro" }));
+        for (let i = 0; i < options.length; i++) {
+            const textMetrics = this._background.context.measureText(options[i]);
+            const wx = textMetrics.width + space;
+            buttons.push(new BrowserRectangle(region.wx / 2 - wx / 2, i * (textMetrics.emHeightDescent + space) + space, wx, textMetrics.emHeightDescent, { font: font, text: options[i] }));
+        }
+        buttons.push(new BrowserRectangle(region.x + region.wx - exitButtonSize - 5, 5, exitButtonSize, exitButtonSize, { text: "X", font: "4px Sans-serif" }));
+
+        return [buttons, region];
+    }
+
     public constructor(previous: BrowserState) {
         super();
         this._previous = previous;
         this._background = new BrowserFramebuffer(1, 1);
 
-        const uiFactory = new BrowserUIFactory();
         // pascal case is when every letter is capitalized, like the class names and enum names in the project.
         // Ironically, the variable name is camelCase, not PascalCase.
         const pascalCase = Object.keys(BrowserShortcut);
@@ -187,8 +210,8 @@ export class BrowserMenuState extends BrowserState {
                     pascalCase[i] = pascalCase[i].slice(0, j) + ' ' + pascalCase[i].slice(j);
             }
         }
-        [this._buttons, this._region] = uiFactory.createMenu(pascalCase);
-        this._transform = uiFactory.createTransform(this._region, this._region.centerRegion(1, 1));
+        [this._buttons, this._region] = this.createInterface(pascalCase);
+        this._transform = new BrowserUIFactory().createTransform(this._region, this._region.centerRegion(1, 1));
     }
 
     public hasQueuedState(): boolean {

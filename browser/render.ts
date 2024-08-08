@@ -458,6 +458,7 @@ export class BrowserRectangle extends BrowserRenderTarget {
     }
 }
 
+// TO DO: replace with BrowserRectangle
 export class BrowserRegion {
     public x: number;
     public y: number;
@@ -551,17 +552,12 @@ export class BrowserRegion {
     }
 }
 
+// TO DO: remove entirely
 export class BrowserUIFactory {
     public static readonly charSize = 50;
     public static readonly charSpaceSize = 10;
     public static readonly wordSpaceSize = 10;
     public static readonly charColors = ["white", "Gainsboro", "yellow", "green"];
-
-    public static readonly settingsFont = "14px Sans-serif";
-    public static readonly settingsSpace = 14;
-    public static readonly settingsWidthSpace = 20;
-    public static readonly settingsButtonWidthSpace = 10;
-    public static readonly settingsExitButtonSize = 6;
 
     private _fontMeasurer: BrowserFramebuffer;
 
@@ -602,31 +598,6 @@ export class BrowserUIFactory {
         this._fontMeasurer.context.font = font;
         const textMetrics = this._fontMeasurer.context.measureText(str);
         return [textMetrics.width, textMetrics.emHeightDescent];
-    }
-
-    /**
-     * Creates menu with background and custom buttons
-     * @param options Array of each options' text
-     * @returns Array of rectangles, each index correlates with the "options" array + 1. The first index is the background, last index is the X button.
-     */
-    public createMenu(options: Array<string>): [Array<BrowserRectangle>, BrowserRegion] {
-        const region = new BrowserRegion(0, 0, 0, BrowserUIFactory.settingsSpace);
-        for (let i = 0; i < options.length; i++) {
-            const dims = this.measureText(BrowserUIFactory.settingsFont, options[i]);
-            region.wx = Math.max(region.wx, dims[0]);
-            region.wy += dims[1] + BrowserUIFactory.settingsSpace;
-        }
-        region.wx += BrowserUIFactory.settingsWidthSpace * 2;
-
-        const buttons: Array<BrowserRectangle> = [];
-        buttons.push(new BrowserRectangle(region.x, region.y, region.wx, region.wy, { style: "Gainsboro" }));
-        for (let i = 0; i < options.length; i++) {
-            const dims = this.measureText(BrowserUIFactory.settingsFont, options[i]);
-            dims[0] += BrowserUIFactory.settingsButtonWidthSpace;
-            buttons.push(new BrowserRectangle(region.wx / 2 - dims[0] / 2, i * (dims[1] + BrowserUIFactory.settingsSpace) + BrowserUIFactory.settingsSpace, dims[0], dims[1], { font: BrowserUIFactory.settingsFont, text: options[i] }));
-        }
-        buttons.push(new BrowserRectangle(region.x + region.wx - BrowserUIFactory.settingsExitButtonSize - 5, 5, BrowserUIFactory.settingsExitButtonSize, BrowserUIFactory.settingsExitButtonSize, { text: "X", font: "4px Sans-serif" }));
-        return [buttons, region];
     }
 
     public createTransform(from: BrowserRegion, to: BrowserRegion): DOMMatrix {
