@@ -433,17 +433,41 @@ export abstract class BrowserGameState extends BrowserState {
     }
 
     public handleKeyClick(input: string): void {
+        this._changeUiAt = this.game.board.currentWordIndex;
         if (input.toUpperCase() === input && Object.values(BrowserShortcut).includes(input as BrowserShortcut))
             this.shortcut(input as BrowserShortcut);
         else
             this.keyboard.handleKeyClick(input);
     }
 
-    protected abstract update(): void;
+    protected abstract onPushWord(): void;
+    protected abstract onPopCharacter(): void;
+    protected abstract onPushCharacter(key: string): void;
+    protected abstract tryStartNewGame(): void;
     protected abstract shortcut(shortcut: BrowserShortcut): void;
 
+    private _changeUiAt: number = -1;
     public render(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, delta: number): void {
-        this.update();
+        const key = this.keyboard.getCurrentKey();
+        if (key !== "" && this.board.wordAnimation.isDone()) {
+            this.tryStartNewGame();
+            if (key === "Enter")
+                this.onPushWord();
+            else if (key === "Backspace")
+                this.onPopCharacter();
+            else
+                this.onPushCharacter(key);
+        }
+
+        if (this._changeUiAt !== -1 && this.board.wordAnimation.renderMessageDuring) {
+            this.message = this.game.popMessage();
+            this.game.board.data[this._changeUiAt].word.forEach(v => {
+                const cell = this.keyboard.getCharRectangle(v.character);
+                if (cell.styleList.indexOf(cell.style) < v.state)
+                    cell.style = cell.styleList[v.state];
+            });
+            this._changeUiAt = -1;
+        }
 
         ctx.resetTransform();
         ctx.fillStyle = "white";
@@ -478,7 +502,28 @@ export class BrowserSingleplayerState extends BrowserGameState {
         super("Singleplayer");
     }
 
-    private _changeUiAt: number = -1;
+    protected onPushWord(): void {
+        const start = this.game.board.currentWordIndex;
+        this.game.onPushWord();
+        this.board.setWord(start, this.game.board.data[start].word);
+    }
+
+    protected onPushCharacter(key: string): void {
+        const charPos = this.game.board.currentCharacterIndex;
+        if (this.game.onPushCharacter(key))
+            this.board.setCharacter(this.game.board.currentWordIndex, charPos, key);
+    }
+
+    protected onPopCharacter(): void {
+        this.game.onPopCharacter();
+        this.board.setCharacter(this.game.board.currentWordIndex, this.game.board.currentCharacterIndex, ' ');
+    }
+
+    protected tryStartNewGame(): void {
+        if (this.game.startQueuedGame())
+            this.createInterface();
+    }
+
     protected shortcut(shortcut: BrowserShortcut) {
         switch (shortcut) {
             case BrowserShortcut.ToggleGuidedMode:
@@ -509,7 +554,6 @@ export class BrowserSingleplayerState extends BrowserGameState {
                 for (let i = 0; i < this.game.board.targetWord.length; i++)
                     targetChars.push(new WordleCharacter(this.game.board.targetWord[i].toUpperCase(), WordleCharacterState.Green));
                 this.board.setWord(this.game.board.currentWordIndex, targetChars);
-                this._changeUiAt = this.game.board.currentWordIndex;
                 this.game.giveUp();
                 break;
 
@@ -529,39 +573,6 @@ export class BrowserSingleplayerState extends BrowserGameState {
                 if (sessionId)
                     CoopClient.join(sessionId).then(i => this.nextState = new BrowserWaitingState(i.whenReady().then(j => new BrowserCoopState(j)), this));
                 break;
-        }
-    }
-
-    protected update(): void {
-        const key = this.keyboard.getCurrentKey();
-        if (key !== "" && this.board.wordAnimation.isDone()) {
-            if (this.game.startQueuedGame())
-                this.createInterface();
-            this._changeUiAt = this.game.board.currentWordIndex;
-            if (key === "Enter") {
-                const start = this.game.board.currentWordIndex;
-                this.game.onPushWord();
-                this.board.setWord(start, this.game.board.data[start].word);
-            }
-            else if (key === "Backspace") {
-                this.game.onPopCharacter();
-                this.board.setCharacter(this.game.board.currentWordIndex, this.game.board.currentCharacterIndex, ' ');
-            }
-            else {
-                const charPos = this.game.board.currentCharacterIndex;
-                if (this.game.onPushCharacter(key))
-                    this.board.setCharacter(this.game.board.currentWordIndex, charPos, key);
-            }
-        }
-
-        if (this._changeUiAt !== -1 && this.board.wordAnimation.renderMessageDuring) {
-            this.message = this.game.popMessage();
-            this.game.board.data[this._changeUiAt].word.forEach(v => {
-                const cell = this.keyboard.getCharRectangle(v.character);
-                if (cell.styleList.indexOf(cell.style) < v.state)
-                    cell.style = cell.styleList[v.state];
-            });
-            this._changeUiAt = -1;
         }
     }
 }
@@ -631,7 +642,6 @@ export class BrowserWaitingState extends BrowserState {
 
 export class BrowserCoopState extends BrowserGameState {
     private _connection: CoopClient;
-    private _changeUiAt: number = -1;
     private _queuedWord: string | undefined;
     private _rng: CoopSeedablePRNG;
     /**
@@ -669,7 +679,6 @@ export class BrowserCoopState extends BrowserGameState {
         for (let i = 0; i < this.game.board.targetWord.length; i++)
             targetChars.push(new WordleCharacter(this.game.board.targetWord[i].toUpperCase(), WordleCharacterState.Green));
         this.board.setWord(this.game.board.currentWordIndex, targetChars);
-        this._changeUiAt = this.game.board.currentWordIndex;
         this.game.giveUp();
     }
 
@@ -751,7 +760,6 @@ export class BrowserCoopState extends BrowserGameState {
 
     private physPushChar(char: string): void {
         this.tryStartNextGame();
-        this._changeUiAt = this.game.board.currentWordIndex;
         const charPos = this.game.board.currentCharacterIndex;
         if (this.game.onPushCharacter(char))
             this.board.setCharacter(this.game.board.currentWordIndex, charPos, char);
@@ -759,46 +767,44 @@ export class BrowserCoopState extends BrowserGameState {
 
     private physPopChar(): void {
         this.tryStartNextGame();
-        this._changeUiAt = this.game.board.currentWordIndex;
         this.game.onPopCharacter();
         this.board.setCharacter(this.game.board.currentWordIndex, this.game.board.currentCharacterIndex, ' ');
     }
 
     private physPushWord(): void {
         this.tryStartNextGame();
-        this._changeUiAt = this.game.board.currentWordIndex;
         const start = this.game.board.currentWordIndex;
         if (this.game.onPushWord())
             this._wordState++;
         this.board.setWord(start, this.game.board.data[start].word);
     }
 
-    protected update(): void {
-        const key = this.keyboard.getCurrentKey();
-        if (key !== "" && this.board.wordAnimation.isDone() && this._wordState % 2 === 0) {
-            if (key === "Enter") {
-                this.physPushWord();
-                this._connection.sendMessage("PushWord", this.game.board.data[this._changeUiAt].join());
-            }
-            else if (key === "Backspace") {
-                this.physPopChar();
-                this._connection.sendMessage("PopChar", this.game.board.data[this._changeUiAt].join());
-            }
-            else {
-                this.physPushChar(key);
-                this._connection.sendMessage("PushChar", key);
-            }
-        }
+    protected onPushWord(): void {
+        if (this._wordState % 2 !== 0)
+            return;
+        this.physPushWord();
+        this._connection.sendMessage("PushWord", this.game.board.currentWord.join());
+    }
 
-        if (this._changeUiAt !== -1 && this.board.wordAnimation.renderMessageDuring) {
-            this.message = this.game.popMessage();
-            this.game.board.data[this._changeUiAt].word.forEach(v => {
-                const cell = this.keyboard.getCharRectangle(v.character);
-                if (cell.styleList.indexOf(cell.style) < v.state)
-                    cell.style = cell.styleList[v.state];
-            });
-            this._changeUiAt = -1;
-        }
+    protected onPopCharacter(): void {
+        if (this._wordState % 2 !== 0)
+            return;
+        this.physPopChar();
+        this._connection.sendMessage("PopChar", this.game.board.currentWord.join());
+    }
+
+    protected onPushCharacter(key: string): void {
+        if (this._wordState % 2 !== 0)
+            return;
+        this.physPushChar(key);
+        this._connection.sendMessage("PushChar", key);
+    }
+
+    protected tryStartNewGame(): void {
+        if (!this.game.isWon() && !this.game.isLost())
+            return;
+        this.game.restart(WordListManager.getWordOnIndex(this._rng.next()));
+        this.createInterface();
     }
 
     protected shortcut(shortcut: BrowserShortcut): void {
