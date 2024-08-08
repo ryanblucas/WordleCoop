@@ -557,11 +557,6 @@ export class BrowserUIFactory {
     public static readonly wordSpaceSize = 10;
     public static readonly charColors = ["white", "Gainsboro", "yellow", "green"];
 
-    public static readonly keyWidth = 30;
-    public static readonly keyHeight = 50;
-    public static readonly keySpace = 5;
-    public static readonly keyColors = ["Gainsboro", "DarkGray", "Yellow", "Green"];
-
     public static readonly settingsFont = "14px Sans-serif";
     public static readonly settingsSpace = 14;
     public static readonly settingsWidthSpace = 20;
@@ -573,10 +568,6 @@ export class BrowserUIFactory {
     public constructor() {
         this._fontMeasurer = new BrowserFramebuffer(1, 1);
         this._fontMeasurer.context.textBaseline = "top";
-    }
-
-    private calculateStride(count: number, width: number, space: number): number {
-        return count * width + (count - 1) * space;
     }
 
     public createWord(charCount: number, x: number = 0, y: number = 0, wx: number = BrowserUIFactory.charSize, wy: number = BrowserUIFactory.charSize, space = BrowserUIFactory.charSpaceSize): [Array<BrowserRectangle>, BrowserRegion] {
@@ -598,32 +589,6 @@ export class BrowserUIFactory {
             region = region.merge(word[1]);
         }
 
-        return [result, region];
-    }
-
-    public createKeyboard(x: number = 0, y: number = 0): [Array<BrowserRectangle>, BrowserRegion] {
-        const rows = [
-            ['q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p'],
-            ['a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l'],
-            ['z', 'x', 'c', 'v', 'b', 'n', 'm']];
-
-        const region = new BrowserRegion(x, y, this.calculateStride(rows[0].length, BrowserUIFactory.keyWidth, BrowserUIFactory.keySpace), this.calculateStride(rows.length, BrowserUIFactory.keyHeight, BrowserUIFactory.keySpace));
-        const middle = region.x + region.wx / 2;
-
-        const result: Array<BrowserRectangle> = [];
-        let bottomLeft = 0, bottomRight = 0;
-        for (let i = 0; i < rows.length; i++, y += BrowserUIFactory.keyHeight + BrowserUIFactory.keySpace) {
-            x = middle - this.calculateStride(rows[i].length, BrowserUIFactory.keyWidth, BrowserUIFactory.keySpace) / 2;
-            bottomLeft = x;
-            for (let j = 0; j < rows[i].length; j++, x += BrowserUIFactory.keyWidth + BrowserUIFactory.keySpace) {
-                result.push(new BrowserRectangle(x, y, BrowserUIFactory.keyWidth, BrowserUIFactory.keyHeight, { text: rows[i][j], font: "24px Sans-serif", styleList: BrowserUIFactory.keyColors }));
-            }
-            bottomRight = x;
-        }
-
-        y -= BrowserUIFactory.keyHeight + BrowserUIFactory.keySpace;
-        result.push(new BrowserRectangle(region.left, y, bottomLeft - BrowserUIFactory.keySpace - region.left, BrowserUIFactory.keyHeight, { text: "ENTER", font: "14px Sans-serif", styleList: BrowserUIFactory.keyColors }));
-        result.push(new BrowserRectangle(bottomRight, y, region.right - bottomRight - BrowserUIFactory.keySpace, BrowserUIFactory.keyHeight, { text: "\u232B", font: "24px Sans-serif", styleList: BrowserUIFactory.keyColors }));
         return [result, region];
     }
 
@@ -695,9 +660,35 @@ export class BrowserKeyboard extends BrowserRenderTarget {
         this._needsInvalidate = true;
     }
 
+    private createInterface(): [Array<BrowserRectangle>, BrowserRegion] {
+        const rows = [
+            ['q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p'],
+            ['a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l'],
+            ['z', 'x', 'c', 'v', 'b', 'n', 'm'], []];
+        const width = 30, height = 50, space = 5, style: any = { font: "24px Sans-serif", styleList: ["Gainsboro", "DarkGray", "Yellow", "Green"] };
+        const result = new Array<BrowserRectangle>();
+        const center = (rows[0].length * (width + space) - space) / 2;
+
+        for (let r = 0; r < 3; r++) {
+            let startX = center - (rows[r].length * (width + space) - space) / 2;
+            for (let c = 0; c < rows[r].length; c++)
+                result.push(new BrowserRectangle(c * (width + space) + startX, r * (height + space), width, height, { text: rows[r][c], ...style }));
+        }
+
+        const bottomY = (height + space) * 2,
+            bottomRight = result[result.length - 1].right + space,
+            bottomLeft = result[result.length - rows[2].length].left;
+        result.push(new BrowserRectangle(bottomRight, bottomY, result[rows[0].length - 1].right - bottomRight, height, { text: "\u232B", ...style }));
+        style.font = "14px Sans-serif";
+        result.push(new BrowserRectangle(0, bottomY, bottomLeft - space, height, { text: "ENTER", ...style }));
+
+        return [result, BrowserRegion.fromRectangles(...result)];
+    }
+
     public constructor(x: number, y: number) {
         super();
-        [this._keys, this._keysRegion] = new BrowserUIFactory().createKeyboard();
+
+        [this._keys, this._keysRegion] = this.createInterface();
         this._image = new BrowserFramebuffer(1, 1);
         this._needsInvalidate = true;
 
