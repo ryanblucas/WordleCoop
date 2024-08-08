@@ -4,6 +4,8 @@
 //  UI renderer
 //
 
+import { WordleCharacter, WordleCharacterState } from "../wordle.js";
+
 export abstract class BrowserRenderTarget {
     public id: number = 0;
     public abstract render(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, delta: number): void;
@@ -666,5 +668,251 @@ export class BrowserUIFactory {
         const dax = from.right - from.left, dbx = to.right - to.left;
         const day = from.bottom - from.top, dby = to.bottom - to.top;
         return new DOMMatrix([dbx / dax, 0, 0, dby / day, -from.left * dbx / dax + to.left, -from.top * dby / day + to.top]);
+    }
+}
+
+/**
+ * Represents both the UI component of a keyboard and the functionality.
+ */
+export class BrowserKeyboard extends BrowserRenderTarget {
+    private _keys: Array<BrowserRectangle>;
+    private _image: BrowserFramebuffer;
+    private _needsInvalidate: boolean;
+
+    private _keysRegion: BrowserRegion;
+    private _adjRegion: BrowserRegion;
+    private _transform: DOMMatrix;
+
+    private _currentKey: string = "";
+
+    public get region(): BrowserRegion {
+        return this._adjRegion;
+    }
+
+    public set region(value: BrowserRegion) {
+        this._adjRegion = value;
+        this._transform = new BrowserUIFactory().createTransform(this._keysRegion, this._adjRegion);
+        this._needsInvalidate = true;
+    }
+
+    public constructor(x: number, y: number) {
+        super();
+        [this._keys, this._keysRegion] = new BrowserUIFactory().createKeyboard();
+        this._image = new BrowserFramebuffer(1, 1);
+        this._needsInvalidate = true;
+
+        this._transform = new DOMMatrix([1, 0, 0, 1, 0, 0]).translate(x, y);
+        this._adjRegion = this._keysRegion.transform(this._transform);
+    }
+
+    public render(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, delta: number): void {
+        if (ctx.canvas.width !== this._image.canvas.width || ctx.canvas.height !== this._image.canvas.height) {
+            this._image = new BrowserFramebuffer(ctx.canvas.width, ctx.canvas.height);
+            this._needsInvalidate = true;
+        }
+        const mat4 = ctx.getTransform();
+        if (this._needsInvalidate || mat4 !== this._image.context.getTransform()) {
+            this._image.context.setTransform();
+            this._image.context.clearRect(0, 0, this._image.canvas.width, this._image.canvas.height);
+            this._image.context.setTransform(mat4.multiply(this._transform));
+            for (let i = 0; i < this._keys.length; i++)
+                this._keys[i].render(this._image.context, delta);
+            this._image.context.setTransform(mat4);
+            this._needsInvalidate = false;
+        }
+        ctx.setTransform();
+        ctx.drawImage(this._image.canvas, 0, 0);
+        ctx.setTransform(mat4);
+
+        this._currentKey = "";
+    }
+
+    public getCharRectangle(character: string): BrowserRectangle {
+        character = character.toLowerCase();
+        character = character === "backspace" ? "\u232B" : character;
+        const realResult = this._keys.find(v => v.text === character);
+        if (!realResult) {
+            console.log("Invalid character \"" + character + "\" passed to getCharRectangle, defaulting to blank rectangle.");
+            return new BrowserRectangle(0, 0, 1, 1);
+        }
+        return realResult;
+    }
+
+    public handleKeyClick(char: string): void {
+        if ("abcdefghijklmnopqrstuvwxyz".includes(char.toLowerCase()) || char === "Backspace" || char == "Enter")
+            this._currentKey = char;
+    }
+
+    public handleMouseClick(x: number, y: number): void {
+        const pt = this._transform.inverse().transformPoint(new DOMPoint(x, y));
+        for (let i = 0; i < this._keys.length; i++) {
+            if (this._keys[i].isPointInRectangle(pt.x, pt.y))
+                this._currentKey = this._keys[i].text === "\u232B" ? "Backspace" : this._keys[i].text;
+        }
+    }
+
+    public getCurrentKey(): string {
+        return this._currentKey;
+    }
+}
+
+/**
+ * Represents the game's character board and its UI
+ */
+export class BrowserWordleBoard extends BrowserRenderTarget {
+    private _image: BrowserFramebuffer;
+    private _needsInvalidate: boolean;
+
+    private _cells: Array<BrowserRectangle>;
+    private _animations: Array<BrowserCharAnimation>;
+    private _wordQueue: Array<BrowserRenderAnimation>;
+
+    private _cellsRegion: BrowserRegion;
+    private _adjRegion: BrowserRegion;
+    private _transform: DOMMatrix;
+
+    private _charCount: number;
+    private _wordCount: number;
+    public addAnimations: boolean = true;
+
+    public get region(): BrowserRegion {
+        return this._adjRegion;
+    }
+
+    public set region(value: BrowserRegion) {
+        this._adjRegion = value;
+        this._transform = new BrowserUIFactory().createTransform(this._cellsRegion, this._adjRegion);
+    }
+
+    /**
+     * Gets current word animation. If there is no word animation, it returns a completed BrowserCharAnimation.
+     */
+    public get wordAnimation(): BrowserRenderAnimation {
+        const blank = new BrowserCharAnimation(this._cells[0], 0, 0);
+        blank.percent = 1.1;
+        return this._wordQueue.length <= 0 ? blank : this._wordQueue[0];
+    }
+
+    public constructor(x: number, y: number, wordCount: number, charCount: number) {
+        super();
+        this._wordCount = wordCount;
+        this._charCount = charCount;
+        [this._cells, this._cellsRegion] = new BrowserUIFactory().createCells(this._wordCount, this._charCount);
+        this._animations = [];
+        this._wordQueue = [];
+        this._image = new BrowserFramebuffer(1, 1);
+        this._needsInvalidate = true;
+
+        this._transform = new DOMMatrix([1, 0, 0, 1, 0, 0]).translate(x, y);
+        this._adjRegion = this._cellsRegion.transform(this._transform);
+    }
+
+    /**
+     * Sets character at (wordIndex, charIndex) to char and color.
+     * This does not play an animation if the flag "addAnimations" is set to false or the char is a space character.
+     * @param wordIndex Word index of character
+     * @param charIndex Character index of character
+     * @param char The one-letter, alphabetic character to use. This is converted to uppercase when displayed.
+     * @param color The color/state of the cell.
+     */
+    public setCharacter(wordIndex: number, charIndex: number, char: string, color: WordleCharacterState = WordleCharacterState.Unknown): void {
+        char = char.toUpperCase();
+        if (char.length !== 1 || !"ABCDEFGHIJKLMNOPQRSTUVWXYZ ".includes(char))
+            throw new Error("String passed does not have a length of one or is not part of the alphabet, or is not a space character.");
+        if (wordIndex < 0 || wordIndex >= this._wordCount || charIndex < 0 || charIndex >= this._charCount)
+            return;
+
+        const cellIndex = wordIndex * this._charCount + charIndex;
+        this._cells[cellIndex].text = char;
+        this._cells[cellIndex].style = this._cells[cellIndex].styleList[color];
+
+        if (!this.addAnimations || char === ' ')
+            return;
+        const previousIndex = this._animations.findIndex(v => v.id === cellIndex);
+        const anim = new BrowserCharAnimation(this._cells[cellIndex], 5, cellIndex);
+        if (previousIndex === -1)
+            this._animations.push(anim);
+        else
+            this._animations[previousIndex] = anim;
+    }
+
+    /**
+     * Sets word at wordIndex to word. If the "addAnimations" flag is true, it will do the following:
+     *     If all characters are colored and are filled in, the word will display a flip animation. Otherwise, it will shake.
+     *     If all colored parts of the word are green, it will create a win animation after on those cells.
+     * @param wordIndex The index of the word on the board. This dictates where it will be displayed
+     * @param word The completed, colored word
+     */
+    public setWord(wordIndex: number, word: WordleCharacter[]): void {
+        if (word.length !== this._charCount)
+            throw new Error("Word passed does not match the length of the board.");
+        const previous = new BrowserUIFactory().createWord(this._charCount, 0, this._cells[wordIndex * this._charCount].y)[0];
+        let allGreen = true, allComplete = true;
+        for (let i = 0; i < word.length; i++) {
+            const cell = this._cells[wordIndex * this._charCount + i];
+
+            // deep copies
+            previous[i].text = (' ' + cell.text).slice(1);
+            previous[i].style = (' ' + cell.style).slice(1);
+
+            cell.text = word[i].character.toUpperCase();
+            cell.style = cell.styleList[word[i].state];
+
+            allGreen = allGreen && word[i].state === WordleCharacterState.Green;
+            allComplete = allComplete && word[i].character !== ' ' && word[i].state !== WordleCharacterState.Unknown;
+        }
+        const region = this._cells.slice(wordIndex * this._charCount, wordIndex * this._charCount + this._charCount);
+        if (this.addAnimations && allComplete) {
+            this._animations = this._animations.filter(v => v.id < wordIndex * this._charCount || v.id >= wordIndex * this._charCount + this._charCount);
+            this._wordQueue.push(new BrowserWordAnimation(previous, region, wordIndex));
+            if (allGreen)
+                this._wordQueue.push(new BrowserWinAnimation(region, wordIndex));
+        }
+        else if (this.addAnimations) {
+            this._animations = this._animations.filter(v => v.id < wordIndex * this._charCount || v.id >= wordIndex * this._charCount + this._charCount);
+            this._wordQueue.push(new BrowserShakeAnimation(region, wordIndex));
+        }
+    }
+
+    /**
+     * Renders game board to ctx, using delta parameter
+     * @param ctx Canvas to render to. Transform in use prior is conserved.
+     * @param delta Time in milliseconds since the last render
+     */
+    public render(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, delta: number): void {
+        if (ctx.canvas.width !== this._image.canvas.width || ctx.canvas.height !== this._image.canvas.height) {
+            this._image = new BrowserFramebuffer(ctx.canvas.width, ctx.canvas.height);
+            this._needsInvalidate = true;
+        }
+
+        const mat4 = ctx.getTransform();
+        if (this._needsInvalidate || mat4 !== this._image.context.getTransform()) {
+            this._image.context.setTransform();
+            this._image.context.clearRect(0, 0, this._image.canvas.width, this._image.canvas.height);
+            this._image.context.setTransform(mat4.multiply(this._transform));
+            this._image.context.textAlign = "center";
+            this._image.context.textBaseline = "middle";
+            for (let i = 0; i < this._cells.length; i++) {
+                let animationIndex = this._animations.findIndex(v => v.id === i);
+                if (this._wordQueue.length !== 0 && Math.floor(i / this._charCount) === this._wordQueue[0].id) {
+                    this._wordQueue[0].render(this._image.context, delta);
+                    i += this._charCount - 1;
+                    if (this._wordQueue[0].isDone())
+                        this._wordQueue.splice(0, 1);
+                }
+                else if (animationIndex !== -1) {
+                    this._animations[animationIndex].render(this._image.context, delta);
+                    if (this._animations[animationIndex].isDone())
+                        this._animations.splice(animationIndex, 1);
+                }
+                else
+                    this._cells[i].render(this._image.context, delta);
+            }
+            this._image.context.setTransform(mat4);
+            this._needsInvalidate = this._wordQueue.length !== 0 || this._animations.length !== 0;
+        }
+        ctx.setTransform();
+        ctx.drawImage(this._image.canvas, 0, 0);
+        ctx.setTransform(mat4);
     }
 }
