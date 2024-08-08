@@ -175,6 +175,7 @@ export class BrowserMenuState extends BrowserState {
     private createInterface(options: Array<string>): [Array<BrowserRectangle>, BrowserRegion] {
         const font = "14px Sans-serif", space = 15, exitButtonSize = 6;
         this._background.context.font = font;
+        this._background.context.textBaseline = "top";
 
         const region = new BrowserRegion(0, 0, 0, space);
         for (let i = 0; i < options.length; i++) {
