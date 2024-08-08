@@ -4,6 +4,26 @@
 //  WebRTC client
 //
 
+/**
+ * Seedable pseudorandom number generator
+ */
+export class CoopSeedablePRNG {
+    public readonly seed: number;
+    private _current: number;
+
+    public next(): number {
+        // Xorshift PRNG
+        this._current ^= this._current << 13;
+        this._current ^= this._current >> 17;
+        this._current ^= this._current << 5;
+        return this._current;
+    }
+
+    public constructor(seed: number) {
+        this._current = this.seed = Math.round(seed);
+    }
+}
+
 export enum CoopState {
     Connecting,
     Connected,

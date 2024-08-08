@@ -4,7 +4,7 @@
 //  Browser backend for Wordle Coop
 //
 
-import { CoopClient } from "../coop.js";
+import { CoopClient, CoopSeedablePRNG } from "../coop.js";
 import { WordleCharacter, WordleCharacterState, WordleGame } from "../wordle.js";
 import { WordListManager } from "../wordList.js";
 import { BrowserCharAnimation, BrowserFramebuffer, BrowserRectangle, BrowserRegion, BrowserRenderAnimation, BrowserRenderTarget, BrowserShakeAnimation, BrowserUIFactory, BrowserWinAnimation, BrowserWordAnimation } from "./render.js";
@@ -633,10 +633,11 @@ export class BrowserCoopState extends BrowserGameState {
     private _connection: CoopClient;
     private _changeUiAt: number = -1;
     private _queuedWord: string | undefined;
+    private _rng: CoopSeedablePRNG;
     /**
-     * Determines if it is our turn in picking the next word or not. Non-zero if so, zero if its up to the other user.
+     * The amount of words pushed in total +1 or +0 depending on who sent the higher seed in DetermineStart.
      */
-    private _ourTurn: number = 0;
+    private _wordState: number = 0;
 
     private onClose(): void {
         alert("Connection closed, moving to a singleplayer state.");
@@ -659,8 +660,8 @@ export class BrowserCoopState extends BrowserGameState {
             .addTwoWayProtocol("GiveUpResponse", "", this.giveUpResponseHandler.bind(this))
             .finishProtocol();
         this._connection.onClose = this.onClose.bind(this);
-        this._ourTurn = Math.random() * 100;
-        this._connection.sendMessage("DetermineStart", this._ourTurn);
+        this._rng = new CoopSeedablePRNG(Math.round(Math.random() * 0xFFFF));
+        this._connection.sendMessage("DetermineStart", this._rng.seed);
     }
 
     private physGiveUp(): void {
@@ -697,21 +698,15 @@ export class BrowserCoopState extends BrowserGameState {
     }
 
     /**
-     * Each client sends a number between 0-100, and whichever client has the highest number goes first.
+     * Each client sends an integer between 0-0xFFFF, and whichever number is higher is the seed for this session.
+     * Whoever sent the lower number plays first.
      * @param num Number from the other client
      */
     private determineStartHandler(num: number): void {
-        if (this._ourTurn < num) {
-            console.log("The other client determines what word goes next.");
-            this._ourTurn = 0;
+        if (this._rng.seed >= num)
             return;
-        }
-        else if (this._ourTurn === num) {
-            this._ourTurn = Math.random() * 100;
-            this._connection.sendMessage("DetermineStart", this._ourTurn);
-            return;
-        }
-        console.log("This client determines what word goes next.");
+        this._rng = new CoopSeedablePRNG(num);
+        this._wordState++;
     }
 
     /**
@@ -738,20 +733,24 @@ export class BrowserCoopState extends BrowserGameState {
      */
     private wordAskHandler(word: string): void {
         const wordIndex = WordListManager.getWordIndex(word);
-        const finishedGame = this.game.isWon() || this.game.isLost();
-        if (wordIndex === -1 || (finishedGame && this._ourTurn)
-            || (!finishedGame && prompt("The other user wishes to change the word. Let them? (y/n)")?.toLowerCase() !== 'y')) {
+        if (wordIndex === -1 || prompt("The other user wishes to change the word. Let them? (y/n)")?.toLowerCase() !== 'y') {
             this._connection.sendMessage("WordResponse", "No");
             return;
         }
         this._connection.sendMessage("WordResponse", "Yes");
         this.game.restart(word);
         this.createInterface();
-        if (finishedGame)
-            this._ourTurn = new Number(!this._ourTurn).valueOf();
+    }
+
+    private tryStartNextGame(): void {
+        if (!this.game.isWon() && !this.game.isLost())
+            return;
+        this.game.restart(WordListManager.getWordOnIndex(this._rng.next()));
+        this.createInterface();
     }
 
     private physPushChar(char: string): void {
+        this.tryStartNextGame();
         this._changeUiAt = this.game.board.currentWordIndex;
         const charPos = this.game.board.currentCharacterIndex;
         if (this.game.onPushCharacter(char))
@@ -759,28 +758,24 @@ export class BrowserCoopState extends BrowserGameState {
     }
 
     private physPopChar(): void {
+        this.tryStartNextGame();
         this._changeUiAt = this.game.board.currentWordIndex;
         this.game.onPopCharacter();
         this.board.setCharacter(this.game.board.currentWordIndex, this.game.board.currentCharacterIndex, ' ');
     }
 
     private physPushWord(): void {
+        this.tryStartNextGame();
         this._changeUiAt = this.game.board.currentWordIndex;
         const start = this.game.board.currentWordIndex;
-        this.game.onPushWord();
+        if (this.game.onPushWord())
+            this._wordState++;
         this.board.setWord(start, this.game.board.data[start].word);
     }
 
     protected update(): void {
         const key = this.keyboard.getCurrentKey();
-        if (key !== "" && this.board.wordAnimation.isDone()) {
-            if (this.game.isWon() || this.game.isLost()) {
-                if (!this._ourTurn)
-                    return
-                this._queuedWord = WordListManager.getRandomWord();
-                this._connection.sendMessage("WordAsk", this._queuedWord);
-                this._ourTurn = 0;
-            }
+        if (key !== "" && this.board.wordAnimation.isDone() && this._wordState % 2 === 0) {
             if (key === "Enter") {
                 this.physPushWord();
                 this._connection.sendMessage("PushWord", this.game.board.data[this._changeUiAt].join());
