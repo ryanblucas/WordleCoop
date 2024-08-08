@@ -554,38 +554,11 @@ export class BrowserRegion {
 
 // TO DO: remove entirely
 export class BrowserUIFactory {
-    public static readonly charSize = 50;
-    public static readonly charSpaceSize = 10;
-    public static readonly wordSpaceSize = 10;
-    public static readonly charColors = ["white", "Gainsboro", "yellow", "green"];
-
     private _fontMeasurer: BrowserFramebuffer;
 
     public constructor() {
         this._fontMeasurer = new BrowserFramebuffer(1, 1);
         this._fontMeasurer.context.textBaseline = "top";
-    }
-
-    public createWord(charCount: number, x: number = 0, y: number = 0, wx: number = BrowserUIFactory.charSize, wy: number = BrowserUIFactory.charSize, space = BrowserUIFactory.charSpaceSize): [Array<BrowserRectangle>, BrowserRegion] {
-        let right = x;
-        const result: Array<BrowserRectangle> = [];
-        for (let j = 0; j < charCount; j++, right += wx + space) {
-            result.push(new BrowserRectangle(right, y, wx, wy, { strokeStyle: "gray", strokeWidth: 1, text: ' ', font: "bold 36px Sans-serif", styleList: BrowserUIFactory.charColors }));
-        }
-        return [result, BrowserRegion.fromAbsolutePositions(x, y, right - space, y + wy)];
-    }
-
-    public createCells(wordCount: number, charCount: number, x: number = 0, y: number = 0, wx: number = BrowserUIFactory.charSize, wy: number = BrowserUIFactory.charSize, spaceWx = BrowserUIFactory.charSpaceSize, spaceWy = BrowserUIFactory.charSpaceSize): [Array<BrowserRectangle>, BrowserRegion] {
-        let result: Array<BrowserRectangle> = [];
-        let region = new BrowserRegion(x, y, 0, 0);
-        let bottom = y;
-        for (let i = 0; i < wordCount; i++, bottom += wy + spaceWy) {
-            const word = this.createWord(charCount, x, bottom, wx, wy, spaceWx);
-            result = result.concat(word[0]);
-            region = region.merge(word[1]);
-        }
-
-        return [result, region];
     }
 
     /**
@@ -755,11 +728,24 @@ export class BrowserWordleBoard extends BrowserRenderTarget {
         return this._wordQueue.length <= 0 ? blank : this._wordQueue[0];
     }
 
+    private createInterface(): [Array<BrowserRectangle>, BrowserRegion] {
+        const size = 50, space = 10, colors = ["white", "Gainsboro", "yellow", "green"];
+
+        const result: Array<BrowserRectangle> = [];
+        let region = new BrowserRegion(0, 0, (size + space) * this._charCount - space, (size + space) * this._wordCount - space);
+        for (let i = 0; i < this._wordCount; i++) {
+            for (let j = 0; j < this._charCount; j++)
+                result.push(new BrowserRectangle(j * (size + space), i * (size + space), size, size, { strokeStyle: "gray", strokeWidth: 1, text: ' ', font: "bold 36px Sans-serif", styleList: colors }));
+        }
+
+        return [result, region];
+    }
+
     public constructor(x: number, y: number, wordCount: number, charCount: number) {
         super();
         this._wordCount = wordCount;
         this._charCount = charCount;
-        [this._cells, this._cellsRegion] = new BrowserUIFactory().createCells(this._wordCount, this._charCount);
+        [this._cells, this._cellsRegion] = this.createInterface();
         this._animations = [];
         this._wordQueue = [];
         this._image = new BrowserFramebuffer(1, 1);
@@ -808,12 +794,13 @@ export class BrowserWordleBoard extends BrowserRenderTarget {
     public setWord(wordIndex: number, word: WordleCharacter[]): void {
         if (word.length !== this._charCount)
             throw new Error("Word passed does not match the length of the board.");
-        const previous = new BrowserUIFactory().createWord(this._charCount, 0, this._cells[wordIndex * this._charCount].y)[0];
+        const previous: Array<BrowserRectangle> = [];
         let allGreen = true, allComplete = true;
         for (let i = 0; i < word.length; i++) {
             const cell = this._cells[wordIndex * this._charCount + i];
-
             // deep copies
+            previous[i] = new BrowserRectangle(cell.x, cell.y, cell.wx, cell.wy);
+            previous[i].font = (' ' + cell.font).slice(1);
             previous[i].text = (' ' + cell.text).slice(1);
             previous[i].style = (' ' + cell.style).slice(1);
 
