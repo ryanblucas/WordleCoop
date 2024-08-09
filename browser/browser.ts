@@ -227,25 +227,33 @@ export class BrowserCoopState extends BrowserGameState {
         if (this.game.onPushWord())
             this._wordState++;
         this.board.setWord(start, this.game.board.data[start].word);
+        if (this._wordState % 2 !== 0)
+            this.stateMessage = "";
     }
 
     protected onPushWord(): void {
-        if (this._wordState % 2 !== 0)
+        if (this._wordState % 2 !== 0) {
+            this.stateMessage = "It isn't your turn.";
             return;
+        }
         this.physPushWord();
         this._connection.sendMessage("PushWord", this.game.board.currentWord.join());
     }
 
     protected onPopCharacter(): void {
-        if (this._wordState % 2 !== 0)
+        if (this._wordState % 2 !== 0) {
+            this.stateMessage = "It isn't your turn.";
             return;
+        }
         this.physPopChar();
         this._connection.sendMessage("PopChar", this.game.board.currentWord.join());
     }
 
     protected onPushCharacter(key: string): void {
-        if (this._wordState % 2 !== 0)
+        if (this._wordState % 2 !== 0) {
+            this.stateMessage = "It isn't your turn.";
             return;
+        }
         this.physPushChar(key);
         this._connection.sendMessage("PushChar", key);
     }

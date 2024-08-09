@@ -42,7 +42,8 @@ export abstract class BrowserGameState extends BrowserState {
     protected board: BrowserWordleBoard;
     protected game: WordleGame;
     protected menuButton: BrowserRectangle;
-    protected message: string = "";
+    protected stateMessage: string = "";
+    private _gameMessage: string = "";
     protected gameName: string;
     protected nextState: BrowserState | undefined;
 
@@ -104,6 +105,7 @@ export abstract class BrowserGameState extends BrowserState {
     public render(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, delta: number): void {
         const key = this.keyboard.getCurrentKey();
         if (key !== "" && this.board.wordAnimation.isDone()) {
+            this.stateMessage = "";
             this.tryStartNewGame();
             this._changeUiAt = this.game.board.currentWordIndex;
             if (key.toLowerCase() === "enter")
@@ -115,7 +117,7 @@ export abstract class BrowserGameState extends BrowserState {
         }
 
         if (this._changeUiAt !== -1 && this.board.wordAnimation.renderMessageDuring) {
-            this.message = this.game.popMessage();
+            this._gameMessage = this.game.popMessage();
             this.game.board.data[this._changeUiAt].word.forEach(v => {
                 const cell = this.keyboard.getCharRectangle(v.character);
                 if (cell.styleList.indexOf(cell.style) < v.state)
@@ -134,7 +136,7 @@ export abstract class BrowserGameState extends BrowserState {
         ctx.font = "24px Sans-serif";
         ctx.textBaseline = "top";
         ctx.textAlign = "right";
-        ctx.fillText(this.message, this.right, this.top, 250);
+        ctx.fillText(this._gameMessage === "" ? this.stateMessage : this._gameMessage, this.right, this.top, 250);
 
         ctx.font = "10px Sans-Serif";
         ctx.fillText(`${this.gameName} game`, this.right, this.board.bottom + 4, this.wx / 2);
