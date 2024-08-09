@@ -8,6 +8,16 @@ import { WordleGame } from "../wordle.js";
 import { BrowserFramebuffer, BrowserKeyboard, BrowserRectangle, BrowserRegion, BrowserRenderTarget, BrowserUIFactory, BrowserUIPlace, BrowserWordleBoard } from "./render.js";
 
 export abstract class BrowserState extends BrowserRenderTarget {
+    /**
+     * How much of the screen is occupied by the region of this state.
+     */
+    public coverage: number;
+
+    public constructor(x: number, y: number, wx: number, wy: number, coverage: number = 0.9) {
+        super(x, y, wx, wy);
+        this.coverage = coverage;
+    }
+
     public abstract hasQueuedState(): boolean;
     public abstract popQueuedState(): BrowserState | undefined;
     public abstract handleMouseClick(x: number, y: number): void;
@@ -167,7 +177,7 @@ export class BrowserMenuState extends BrowserState {
     }
 
     public constructor(previous: BrowserState) {
-        super(0, 0, 0, 0);
+        super(0, 0, 0, 0, 0.4);
         this._previous = previous;
         this._background = new BrowserFramebuffer(1, 1);
 
@@ -231,7 +241,7 @@ export class BrowserWaitingState extends BrowserState {
     public constructor(promise: Promise<BrowserState>, prevState: BrowserState, text: string = "Waiting...") {
         const factory = new BrowserUIFactory();
         const textRect = factory.addText(new BrowserRectangle(0, 0, 0, 0, { font: "32px Sans-serif", text: text }), BrowserUIPlace.Middle);
-        super(factory.region.x, factory.region.y, factory.region.wx, factory.region.wy);
+        super(factory.region.x, factory.region.y, factory.region.wx, factory.region.wy, 0.1);
         this._text = textRect;
         this._promise = promise;
         this._prevState = prevState;

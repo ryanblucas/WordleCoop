@@ -8,7 +8,7 @@ import { CoopClient, CoopSeedablePRNG } from "../coop.js";
 import { WordleCharacter, WordleCharacterState } from "../wordle.js";
 import { WordListManager } from "../wordList.js";
 import { BrowserGameState, BrowserShortcut, BrowserState, BrowserWaitingState } from "./browserAuxiliary.js";
-import { BrowserUIFactory } from "./render.js";
+import { BrowserFramebuffer, BrowserUIFactory } from "./render.js";
 
 export class BrowserSingleplayerState extends BrowserGameState {
     public constructor() {
@@ -320,7 +320,7 @@ export class BrowserCoopState extends BrowserGameState {
 }
 
 declare global {
-    interface Window { browserState: BrowserState; }
+    interface Window { state: BrowserState; }
 }
 
 module BrowserWordle {
@@ -332,6 +332,9 @@ module BrowserWordle {
     let previousWidth: number;
     let previousHeight: number;
     let transform: DOMMatrix;
+
+    let prevState: BrowserState | undefined;
+    let background: BrowserFramebuffer;
 
     function onKeyDown(this: Window, ev: KeyboardEvent): void {
         state.handleKeyClick(ev.key);
@@ -352,26 +355,42 @@ module BrowserWordle {
         addEventListener("click", onClick);
 
         state = new BrowserSingleplayerState();
-        window.browserState = state;
+        window.state = state;
 
         let fpsElapsed = 0.0, fpsSamples = 0, avgFps = 0;
         let last = performance.now();
         const frame = (curr: number) => {
             let recreateMatrix = previousWidth !== ctx.canvas.width || previousHeight !== ctx.canvas.height;
             if (state.hasQueuedState()) {
+                prevState = state;
                 state = state.popQueuedState()!;
-                window.browserState = state;
+                if (state.coverage >= prevState.coverage)
+                    prevState = undefined;
+                window.state = state;
                 recreateMatrix = true;
             }
-            if (recreateMatrix)
-                transform = new BrowserUIFactory().createTransform(state, state.centerRegion(previousWidth = ctx.canvas.width, previousHeight = ctx.canvas.height));
+            if (recreateMatrix) {
+                const factory = new BrowserUIFactory();
+                transform = factory.createTransform(state, state.centerRegion(previousWidth = ctx.canvas.width, previousHeight = ctx.canvas.height, state.coverage));
+                background = new BrowserFramebuffer(ctx.canvas.width, ctx.canvas.height);
+                if (prevState) {
+                    const unblurred = new BrowserFramebuffer(previousWidth, previousHeight);
+                    unblurred.context.setTransform(factory.createTransform(prevState, prevState.centerRegion(previousWidth, previousHeight, prevState.coverage)));
+                    prevState.render(unblurred.context, 0); // dont update the previous state anymore by setting delta to 0
+                    background.context.filter = "blur(2px)";
+                    background.context.drawImage(unblurred.canvas, 0, 0);
+                }
+                else {
+                    background.context.fillStyle = "white";
+                    background.context.fillRect(0, 0, previousWidth, previousHeight);
+                }
+            }
 
-            ctx.setTransform();
-            // TO DO: add backgrounds for each state
-            ctx.fillStyle = "white";
-            ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-            ctx.setTransform(transform);
             const msDelta = curr - last;
+            ctx.setTransform();
+            ctx.clearRect(0, 0, previousWidth, previousHeight);
+            ctx.drawImage(background.canvas, 0, 0);
+            ctx.setTransform(transform);
             state.render(ctx, msDelta / 1000.0);
 
             fpsSamples++;
