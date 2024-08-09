@@ -5,16 +5,13 @@
 //
 
 import { WordleGame } from "../wordle.js";
-import { BrowserFramebuffer, BrowserKeyboard, BrowserRectangle, BrowserRegion, BrowserUIFactory, BrowserUIPlace, BrowserWordleBoard } from "./render.js";
+import { BrowserFramebuffer, BrowserKeyboard, BrowserRectangle, BrowserRegion, BrowserRenderTarget, BrowserUIFactory, BrowserUIPlace, BrowserWordleBoard } from "./render.js";
 
-// add back extending BrowserRenderTarget and let BrowserWordle module handle matrix transform and backgrounds
-export abstract class BrowserState {
+export abstract class BrowserState extends BrowserRenderTarget {
     public abstract hasQueuedState(): boolean;
     public abstract popQueuedState(): BrowserState | undefined;
-    public abstract handleResize(wx: number, wy: number): void;
     public abstract handleMouseClick(x: number, y: number): void;
     public abstract handleKeyClick(input: string): void;
-    public abstract render(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, delta: number): void;
 }
 
 /**
@@ -31,18 +28,12 @@ export enum BrowserShortcut {
 }
 
 export abstract class BrowserGameState extends BrowserState {
-    protected transform: DOMMatrix;
     protected keyboard: BrowserKeyboard;
     protected board: BrowserWordleBoard;
     protected game: WordleGame;
     protected menuButton: BrowserRectangle;
     protected message: string = "";
     protected gameName: string;
-
-    protected region: BrowserRegion;
-    protected wx: number = 1;
-    protected wy: number = 1;
-
     protected nextState: BrowserState | undefined;
 
     protected createInterface(): void {
@@ -50,20 +41,21 @@ export abstract class BrowserGameState extends BrowserState {
         this.board = factory.addComponent(new BrowserWordleBoard(0, 0, this.game.board.totalWordCount, this.game.board.totalCharacterCount), BrowserUIPlace.Middle);
         this.keyboard = factory.addComponent(new BrowserKeyboard(0, 18), BrowserUIPlace.BottomMiddle, BrowserUIPlace.BottomMiddle);
         this.menuButton = factory.addText(new BrowserRectangle(0, -4, 0, 0, { text: "MENU", font: "bold 24px \"Verdana\"" }), BrowserUIPlace.TopLeft, BrowserUIPlace.TopRight);
-        this.region = factory.region;
+        this.x = factory.region.x;
+        this.y = factory.region.y;
+        this.wx = factory.region.wx;
+        this.wy = factory.region.wy;
     }
 
     public constructor(gameName: string) {
-        super();
+        super(0, 0, 0, 0);
         this.game = new WordleGame();
         this.gameName = gameName;
 
         // -- mandatory for TypeScript
-        this.transform = new DOMMatrix();
         this.keyboard = new BrowserKeyboard(0, 0);
         this.board = new BrowserWordleBoard(0, 0, 0, 0);
         this.menuButton = new BrowserRectangle(0, 0, 0, 0);
-        this.region = new BrowserRegion(0, 0, 0, 0);
         // --
 
         this.createInterface();
@@ -79,14 +71,7 @@ export abstract class BrowserGameState extends BrowserState {
         return state;
     }
 
-    public handleResize(wx: number, wy: number): void {
-        this.transform = new BrowserUIFactory().createTransform(this.region, this.region.centerRegion(this.wx = wx, this.wy = wy));
-    }
-
     public handleMouseClick(x: number, y: number): void {
-        const transformed = this.transform.inverse().transformPoint(new DOMPoint(x, y));
-        x = transformed.x;
-        y = transformed.y;
         this.keyboard.handleMouseClick(x, y);
         if (this.menuButton.isPointInRectangle(x, y))
             this.nextState = new BrowserMenuState(this);
@@ -129,11 +114,6 @@ export abstract class BrowserGameState extends BrowserState {
             this._changeUiAt = -1;
         }
 
-        ctx.resetTransform();
-        ctx.fillStyle = "white";
-        ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-        ctx.setTransform(this.transform);
-
         this.board.render(ctx, delta);
         this.keyboard.render(ctx, delta);
 
@@ -144,13 +124,13 @@ export abstract class BrowserGameState extends BrowserState {
         ctx.font = "24px Sans-serif";
         ctx.textBaseline = "top";
         ctx.textAlign = "right";
-        ctx.fillText(this.message, this.region.right, this.region.top, 250);
+        ctx.fillText(this.message, this.right, this.top, 250);
 
         ctx.font = "10px Sans-Serif";
-        ctx.fillText(`${this.gameName} game`, this.region.right, this.board.bottom + 4, this.region.wx / 2);
+        ctx.fillText(`${this.gameName} game`, this.right, this.board.bottom + 4, this.wx / 2);
         if (this.game.guidedMode) {
             ctx.textAlign = "left";
-            ctx.fillText("Guided mode -- Shift+T/Menu to toggle", this.region.left, this.board.bottom + 4, this.region.wx / 2);
+            ctx.fillText("Guided mode -- Shift+T/Menu to toggle", this.left, this.board.bottom + 4, this.wx / 2);
         }
     }
 }
@@ -159,9 +139,6 @@ export class BrowserMenuState extends BrowserState {
     private _userExited: boolean = false;
     private _previous: BrowserState;
     private _background: BrowserFramebuffer;
-
-    private _transform: DOMMatrix;
-    private _region: BrowserRegion;
     private _buttons: Array<BrowserRectangle>;
 
     private createInterface(options: Array<string>): [Array<BrowserRectangle>, BrowserRegion] {
@@ -190,7 +167,7 @@ export class BrowserMenuState extends BrowserState {
     }
 
     public constructor(previous: BrowserState) {
-        super();
+        super(0, 0, 0, 0);
         this._previous = previous;
         this._background = new BrowserFramebuffer(1, 1);
 
@@ -203,8 +180,12 @@ export class BrowserMenuState extends BrowserState {
                     pascalCase[i] = pascalCase[i].slice(0, j) + ' ' + pascalCase[i].slice(j);
             }
         }
-        [this._buttons, this._region] = this.createInterface(pascalCase);
-        this._transform = new BrowserUIFactory().createTransform(this._region, this._region.centerRegion(1, 1));
+        let region;
+        [this._buttons, region] = this.createInterface(pascalCase);
+        this.x = region.x;
+        this.y = region.y;
+        this.wx = region.wx;
+        this.wy = region.wy;
     }
 
     public hasQueuedState(): boolean {
@@ -215,22 +196,7 @@ export class BrowserMenuState extends BrowserState {
         return this._previous;
     }
 
-    public handleResize(wx: number, wy: number): void {
-        this._previous.handleResize(wx, wy);
-        this._background.resize(wx, wy);
-
-        const unblurred = new BrowserFramebuffer(wx, wy);
-        this._previous.render(unblurred.context, 0.0);
-        this._background.context.filter = "blur(2px)";
-        this._background.context.drawImage(unblurred.canvas, 0, 0);
-
-        this._transform = new BrowserUIFactory().createTransform(this._region, this._region.centerRegion(wx, wy, 0.5));
-    }
-
     public handleMouseClick(x: number, y: number): void {
-        const translate = this._transform.inverse().transformPoint(new DOMPoint(x, y));
-        x = translate.x;
-        y = translate.y;
         for (let i = 1; i < this._buttons.length - 1; i++) { // first index is the background, don't care about that being pressed and last requires a special handler
             if (this._buttons[i].isPointInRectangle(x, y)) {
                 this._previous.handleKeyClick(Object.values(BrowserShortcut)[i - 1]);
@@ -246,12 +212,6 @@ export class BrowserMenuState extends BrowserState {
     }
 
     public render(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, delta: number): void {
-        ctx.resetTransform();
-        ctx.fillStyle = "white";
-        ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-        ctx.drawImage(this._background.canvas, 0, 0);
-
-        ctx.setTransform(this._transform);
         ctx.textBaseline = "middle";
         ctx.textAlign = "center";
         for (let i = 0; i < this._buttons.length; i++)
@@ -265,18 +225,17 @@ export class BrowserMenuState extends BrowserState {
 export class BrowserWaitingState extends BrowserState {
     private _promise: Promise<BrowserState>;
     private _prevState: BrowserState;
-    private _text: string;
+    private _text: BrowserRectangle;
     private _nextState: BrowserState | undefined;
 
-    private _background: BrowserFramebuffer;
-
     public constructor(promise: Promise<BrowserState>, prevState: BrowserState, text: string = "Waiting...") {
-        super();
+        const factory = new BrowserUIFactory();
+        const textRect = factory.addText(new BrowserRectangle(0, 0, 0, 0, { font: "32px Sans-serif", text: text }), BrowserUIPlace.Middle);
+        super(factory.region.x, factory.region.y, factory.region.wx, factory.region.wy);
+        this._text = textRect;
         this._promise = promise;
         this._prevState = prevState;
-        this._text = text;
 
-        this._background = new BrowserFramebuffer(1, 1);
         this._promise.then(v => this._nextState = v);
         this._promise.catch(e => {
             this._nextState = this._prevState;
@@ -292,15 +251,6 @@ export class BrowserWaitingState extends BrowserState {
         return this._nextState;
     }
 
-    public handleResize(wx: number, wy: number): void {
-        this._background.resize(wx, wy);
-        this._prevState.handleResize(wx, wy);
-        const unblurred = new BrowserFramebuffer(wx, wy);
-        this._prevState.render(unblurred.context, 0.0);
-        this._background.context.filter = "blur(2px)";
-        this._background.context.drawImage(unblurred.canvas, 0, 0);
-    }
-
     public handleMouseClick(x: number, y: number): void {
 
     }
@@ -313,11 +263,8 @@ export class BrowserWaitingState extends BrowserState {
     }
 
     public render(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, delta: number): void {
-        ctx.setTransform();
-        ctx.drawImage(this._background.canvas, 0, 0);
-        ctx.font = "32px Sans-serif";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
-        ctx.fillText(this._text, this._background.canvas.width / 2, this._background.canvas.height / 2, this._background.canvas.width - 32);
+        this._text.render(ctx, delta);
     }
 }

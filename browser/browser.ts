@@ -8,6 +8,7 @@ import { CoopClient, CoopSeedablePRNG } from "../coop.js";
 import { WordleCharacter, WordleCharacterState } from "../wordle.js";
 import { WordListManager } from "../wordList.js";
 import { BrowserGameState, BrowserShortcut, BrowserState, BrowserWaitingState } from "./browserAuxiliary.js";
+import { BrowserUIFactory } from "./render.js";
 
 export class BrowserSingleplayerState extends BrowserGameState {
     public constructor() {
@@ -330,13 +331,15 @@ module BrowserWordle {
     let ctx: CanvasRenderingContext2D;
     let previousWidth: number;
     let previousHeight: number;
+    let transform: DOMMatrix;
 
     function onKeyDown(this: Window, ev: KeyboardEvent): void {
         state.handleKeyClick(ev.key);
     }
 
     function onClick(this: Window, ev: MouseEvent): void {
-        state.handleMouseClick(ev.x, ev.y);
+        const transformedPoint = transform.inverse().transformPoint(new DOMPoint(ev.x, ev.y));
+        state.handleMouseClick(transformedPoint.x, transformedPoint.y);
     }
 
     export function main(): void {
@@ -354,14 +357,20 @@ module BrowserWordle {
         let fpsElapsed = 0.0, fpsSamples = 0, avgFps = 0;
         let last = performance.now();
         const frame = (curr: number) => {
-            if (previousWidth !== ctx.canvas.width || previousHeight !== ctx.canvas.height)
-                state.handleResize(previousWidth = ctx.canvas.width, previousHeight = ctx.canvas.height);
+            let recreateMatrix = previousWidth !== ctx.canvas.width || previousHeight !== ctx.canvas.height;
             if (state.hasQueuedState()) {
                 state = state.popQueuedState()!;
-                state.handleResize(previousWidth, previousHeight);
                 window.browserState = state;
+                recreateMatrix = true;
             }
+            if (recreateMatrix)
+                transform = new BrowserUIFactory().createTransform(state, state.centerRegion(previousWidth = ctx.canvas.width, previousHeight = ctx.canvas.height));
 
+            ctx.setTransform();
+            // TO DO: add backgrounds for each state
+            ctx.fillStyle = "white";
+            ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+            ctx.setTransform(transform);
             const msDelta = curr - last;
             state.render(ctx, msDelta / 1000.0);
 
