@@ -449,10 +449,6 @@ export class BrowserRectangle extends BrowserRenderTarget {
         this.wy = value - this.y;
     }
 
-    public get region(): BrowserRegion {
-        return new BrowserRegion(this.x, this.y, this.wx, this.wy);
-    }
-
     public isPointInRectangle(x: number, y: number): boolean {
         return this.left < x && this.top < y && this.right > x && this.bottom > y
     }
@@ -552,25 +548,79 @@ export class BrowserRegion {
     }
 }
 
-// TO DO: remove entirely
+export enum BrowserUIPlace {
+    TopLeft = 11,
+    TopMiddle = 12,
+    TopRight = 13,
+    MiddleLeft = 21,
+    Middle = 22,
+    MiddleRight = 23,
+    BottomLeft = 31,
+    BottomMiddle = 32,
+    BottomRight = 33
+}
+
 export class BrowserUIFactory {
     private _fontMeasurer: BrowserFramebuffer;
+    private _region: BrowserRegion;
+
+    public get region(): BrowserRegion {
+        return this._region;
+    }
 
     public constructor() {
         this._fontMeasurer = new BrowserFramebuffer(1, 1);
         this._fontMeasurer.context.textBaseline = "top";
+        this._region = new BrowserRegion(0, 0, 0, 0);
     }
 
     /**
-     * Measures str's width and height in font.
-     * @param font Font to measure in
-     * @param str String to measure
-     * @returns An array of numbers; index 0 is width, index 1 is height.
+     * Adds rectangle to current interface at position
+     * @param rect Rectangle to add. The x and y coordinate serve as offsets from the relative positions.
+     * @param anchor The relative place in the *current* region to move the component to.
+     * @param position The relative place to the anchor and the component to move to.
+     * @returns A reference to rect, which is now modified.
      */
-    public measureText(font: string, str: string): [number, number] {
-        this._fontMeasurer.context.font = font;
-        const textMetrics = this._fontMeasurer.context.measureText(str);
-        return [textMetrics.width, textMetrics.emHeightDescent];
+    public addRectangle(rect: BrowserRectangle, anchor: BrowserUIPlace, position: BrowserUIPlace = anchor): BrowserRectangle {
+        const move = (relative: number, compPos: number, compDim: number, regPos: number, regDim: number): number => {
+            if (relative === 2)         // middle
+                return regDim / 2 - compDim / 2 + regPos + compPos;
+            else if (relative === 3)    // right
+                return regPos + regDim + compPos;
+            return regPos + compPos;    // left
+        };
+
+        rect.x = move(anchor % 10, rect.x, rect.wx, this.region.x, this.region.wx);
+        rect.y = move(Math.floor(anchor / 10), rect.y, rect.wy, this.region.y, this.region.wy);
+        // TO DO: add position
+
+        this._region.left = Math.min(this._region.left, rect.left);
+        this._region.top = Math.min(this._region.top, rect.top);
+        this._region.right = Math.max(this._region.right, rect.right);
+        this._region.bottom = Math.max(this._region.bottom, rect.bottom);
+        return rect;
+    }
+
+    // TEMP
+    public addRegion(region: BrowserRegion, anchor: BrowserUIPlace, position: BrowserUIPlace = anchor): BrowserRegion {
+        const rect = this.addRectangle(new BrowserRectangle(region.x, region.y, region.wx, region.wy), position);
+        return new BrowserRegion(rect.x, rect.y, rect.wx, rect.wy);
+    }
+    // TEMP
+
+    /**
+     * Measures text using font and adds that to the current interface, as well as creating a rectangle for it.
+     * @param rect Uses the x, y, font, fontStyle, text properties. X and Y are offsets from position and WX and WY are offsets from the new scale.
+     * @param anchor The relative place in the *current* region to move the component to.
+     * @param position The relative place to the anchor to move the component to.
+     * @returns A reference to rect, which is now a rectangle perfectly fitting the text in dimensions
+     */
+    public addText(rect: BrowserRectangle, anchor: BrowserUIPlace, position: BrowserUIPlace = anchor): BrowserRectangle {
+        this._fontMeasurer.context.font = rect.font;
+        const metrics = this._fontMeasurer.context.measureText(rect.text);
+        rect.wx += metrics.width;
+        rect.wy += metrics.emHeightDescent;
+        return this.addRectangle(rect, position);
     }
 
     public createTransform(from: BrowserRegion, to: BrowserRegion): DOMMatrix {

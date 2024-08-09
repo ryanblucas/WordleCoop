@@ -5,7 +5,7 @@
 //
 
 import { WordleGame } from "../wordle.js";
-import { BrowserFramebuffer, BrowserKeyboard, BrowserRectangle, BrowserRegion, BrowserRenderTarget, BrowserUIFactory, BrowserWordleBoard } from "./render.js";
+import { BrowserFramebuffer, BrowserKeyboard, BrowserRectangle, BrowserRegion, BrowserRenderTarget, BrowserUIFactory, BrowserUIPlace, BrowserWordleBoard } from "./render.js";
 
 export abstract class BrowserState extends BrowserRenderTarget {
     public abstract hasQueuedState(): boolean;
@@ -36,7 +36,6 @@ export abstract class BrowserGameState extends BrowserState {
     protected game: WordleGame;
     protected menuButton: BrowserRectangle;
     protected message: string = "";
-    protected messagePos: number;
     protected gameName: string;
 
     protected region: BrowserRegion;
@@ -46,15 +45,13 @@ export abstract class BrowserGameState extends BrowserState {
     protected nextState: BrowserState | undefined;
 
     protected createInterface(): void {
-        this.board = new BrowserWordleBoard(0, 28, this.game.board.totalWordCount, this.game.board.totalCharacterCount);
-        this.keyboard = new BrowserKeyboard(0, this.board.region.bottom + 18);
-        if (this.board.region.wx < this.keyboard.region.wx)
-            this.board.region = new BrowserRegion(this.board.region.x + this.keyboard.region.wx / 2 - this.board.region.wx / 2, this.board.region.y, this.board.region.wx, this.board.region.wy);
-        else
-            this.keyboard.region = new BrowserRegion(this.keyboard.region.x + this.board.region.wx / 2 - this.keyboard.region.wx / 2, this.keyboard.region.y, this.keyboard.region.wx, this.keyboard.region.wy);
-        this.messagePos = Math.min(this.board.region.x, this.keyboard.region.x) + Math.max(this.board.region.wx, this.keyboard.region.wx);
-        this.menuButton = new BrowserRectangle(0, 0, new BrowserUIFactory().measureText("bold 24px \"Verdana\"", "MENU")[0], 24, { text: "MENU", font: "bold 24px \"Verdana\"" });
-        this.region = this.board.region.merge(this.keyboard.region).merge(this.menuButton.region);
+        const factory = new BrowserUIFactory();
+        this.board = new BrowserWordleBoard(0, 0, this.game.board.totalWordCount, this.game.board.totalCharacterCount);
+        this.board.region = factory.addRegion(this.board.region, BrowserUIPlace.TopMiddle);
+        this.keyboard = new BrowserKeyboard(0, 18);
+        this.keyboard.region = factory.addRegion(this.keyboard.region, BrowserUIPlace.BottomMiddle);
+        this.menuButton = factory.addText(new BrowserRectangle(0, -4, 0, 0, { text: "MENU", font: "bold 24px \"Verdana\"" }), BrowserUIPlace.TopLeft);
+        this.region = factory.region;
         this.transform = new BrowserUIFactory().createTransform(this.region, this.region.centerRegion(this.wx, this.wy));
     }
 
@@ -68,7 +65,6 @@ export abstract class BrowserGameState extends BrowserState {
         this.keyboard = new BrowserKeyboard(0, 0);
         this.board = new BrowserWordleBoard(0, 0, 0, 0);
         this.menuButton = new BrowserRectangle(0, 0, 0, 0);
-        this.messagePos = 0;
         this.region = new BrowserRegion(0, 0, 0, 0);
         // --
 
@@ -99,7 +95,6 @@ export abstract class BrowserGameState extends BrowserState {
     }
 
     public handleKeyClick(input: string): void {
-        this._changeUiAt = this.game.board.currentWordIndex;
         if (input.toUpperCase() === input && Object.values(BrowserShortcut).includes(input as BrowserShortcut))
             this.shortcut(input as BrowserShortcut);
         else
@@ -117,9 +112,10 @@ export abstract class BrowserGameState extends BrowserState {
         const key = this.keyboard.getCurrentKey();
         if (key !== "" && this.board.wordAnimation.isDone()) {
             this.tryStartNewGame();
-            if (key === "Enter")
+            this._changeUiAt = this.game.board.currentWordIndex;
+            if (key.toLowerCase() === "enter")
                 this.onPushWord();
-            else if (key === "Backspace")
+            else if (key.toLowerCase() === "backspace")
                 this.onPopCharacter();
             else
                 this.onPushCharacter(key);
@@ -150,16 +146,14 @@ export abstract class BrowserGameState extends BrowserState {
         ctx.font = "24px Sans-serif";
         ctx.textBaseline = "top";
         ctx.textAlign = "right";
-        ctx.fillText(this.message, this.messagePos, 0, 250);
+        ctx.fillText(this.message, this.region.right, this.region.top, 250);
 
-        if (this.game.guidedMode) {
-            ctx.textAlign = "left";
-            ctx.font = "10px Sans-Serif";
-            ctx.fillText("Guided mode -- Shift+T/Menu to toggle", 0, this.board.region.bottom + 4, this.region.wx / 2);
-        }
-        ctx.textAlign = "right";
         ctx.font = "10px Sans-Serif";
         ctx.fillText(`${this.gameName} game`, this.region.right, this.board.region.bottom + 4, this.region.wx / 2);
+        if (this.game.guidedMode) {
+            ctx.textAlign = "left";
+            ctx.fillText("Guided mode -- Shift+T/Menu to toggle", this.region.left, this.board.region.bottom + 4, this.region.wx / 2);
+        }
     }
 }
 
