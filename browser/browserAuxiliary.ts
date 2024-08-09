@@ -47,10 +47,10 @@ export abstract class BrowserGameState extends BrowserState {
     protected createInterface(): void {
         const factory = new BrowserUIFactory();
         this.board = new BrowserWordleBoard(0, 0, this.game.board.totalWordCount, this.game.board.totalCharacterCount);
-        this.board.region = factory.addRegion(this.board.region, BrowserUIPlace.TopMiddle);
+        this.board.region = factory.addRegion(this.board.region, BrowserUIPlace.Middle);
         this.keyboard = new BrowserKeyboard(0, 18);
-        this.keyboard.region = factory.addRegion(this.keyboard.region, BrowserUIPlace.BottomMiddle);
-        this.menuButton = factory.addText(new BrowserRectangle(0, -4, 0, 0, { text: "MENU", font: "bold 24px \"Verdana\"" }), BrowserUIPlace.TopLeft);
+        this.keyboard.region = factory.addRegion(this.keyboard.region, BrowserUIPlace.BottomMiddle, BrowserUIPlace.BottomMiddle);
+        this.menuButton = factory.addText(new BrowserRectangle(0, -4, 0, 0, { text: "MENU", font: "bold 24px \"Verdana\"" }), BrowserUIPlace.TopLeft, BrowserUIPlace.TopRight);
         this.region = factory.region;
         this.transform = new BrowserUIFactory().createTransform(this.region, this.region.centerRegion(this.wx, this.wy));
     }

@@ -581,18 +581,23 @@ export class BrowserUIFactory {
      * @param position The relative place to the anchor and the component to move to.
      * @returns A reference to rect, which is now modified.
      */
-    public addRectangle(rect: BrowserRectangle, anchor: BrowserUIPlace, position: BrowserUIPlace = anchor): BrowserRectangle {
+    public addRectangle(rect: BrowserRectangle, anchor: BrowserUIPlace, position: BrowserUIPlace | undefined = undefined): BrowserRectangle {
+        // flips anchor (e.g. BottomRight -> TopLeft)
+        if (!position)
+            position = 4 - anchor % 10 + (4 - Math.floor(anchor / 10)) * 10;
+
         const move = (relative: number, compPos: number, compDim: number, regPos: number, regDim: number): number => {
-            if (relative === 2)         // middle
-                return regDim / 2 - compDim / 2 + regPos + compPos;
-            else if (relative === 3)    // right
-                return regPos + regDim + compPos;
-            return regPos + compPos;    // left
+            if (relative === 2)                 // middle
+                return regDim / 2 - compDim + regPos + compPos;
+            else if (relative === 3)            // right
+                return regDim - compDim + regPos + compPos;
+            return regPos + compPos - compDim;  // left
         };
 
         rect.x = move(anchor % 10, rect.x, rect.wx, this.region.x, this.region.wx);
         rect.y = move(Math.floor(anchor / 10), rect.y, rect.wy, this.region.y, this.region.wy);
-        // TO DO: add position
+        rect.x = move(position % 10, rect.x, 0, 0, rect.wx);
+        rect.y = move(Math.floor(position / 10), rect.y, 0, 0, rect.wy);
 
         this._region.left = Math.min(this._region.left, rect.left);
         this._region.top = Math.min(this._region.top, rect.top);
@@ -602,8 +607,8 @@ export class BrowserUIFactory {
     }
 
     // TEMP
-    public addRegion(region: BrowserRegion, anchor: BrowserUIPlace, position: BrowserUIPlace = anchor): BrowserRegion {
-        const rect = this.addRectangle(new BrowserRectangle(region.x, region.y, region.wx, region.wy), position);
+    public addRegion(region: BrowserRegion, anchor: BrowserUIPlace, position: BrowserUIPlace | undefined = undefined): BrowserRegion {
+        const rect = this.addRectangle(new BrowserRectangle(region.x, region.y, region.wx, region.wy), anchor, position);
         return new BrowserRegion(rect.x, rect.y, rect.wx, rect.wy);
     }
     // TEMP
@@ -615,12 +620,12 @@ export class BrowserUIFactory {
      * @param position The relative place to the anchor to move the component to.
      * @returns A reference to rect, which is now a rectangle perfectly fitting the text in dimensions
      */
-    public addText(rect: BrowserRectangle, anchor: BrowserUIPlace, position: BrowserUIPlace = anchor): BrowserRectangle {
+    public addText(rect: BrowserRectangle, anchor: BrowserUIPlace, position: BrowserUIPlace | undefined = undefined): BrowserRectangle {
         this._fontMeasurer.context.font = rect.font;
         const metrics = this._fontMeasurer.context.measureText(rect.text);
         rect.wx += metrics.width;
         rect.wy += metrics.emHeightDescent;
-        return this.addRectangle(rect, position);
+        return this.addRectangle(rect, anchor, position);
     }
 
     public createTransform(from: BrowserRegion, to: BrowserRegion): DOMMatrix {
