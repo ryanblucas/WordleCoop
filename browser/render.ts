@@ -6,7 +6,104 @@
 
 import { WordleCharacter, WordleCharacterState } from "../wordle.js";
 
-export abstract class BrowserRenderTarget {
+export class BrowserRegion {
+    public x: number;
+    public y: number;
+    public wx: number;
+    public wy: number;
+
+    public static fromAbsolutePositions(left: number, top: number, right: number, bottom: number): BrowserRegion {
+        return new BrowserRegion(left, top, right - left, bottom - top);
+    }
+
+    public static fromRelativePositions(x: number, y: number, wx: number, wy: number): BrowserRegion {
+        return new BrowserRegion(x, y, wx, wy);
+    }
+
+    public static fromRectangles(...rects: BrowserRectangle[]): BrowserRegion {
+        const result = new BrowserRegion(rects[0].x, rects[0].y, rects[0].wx, rects[0].wy);
+        rects.forEach(v => {
+            if (v.left < result.left)
+                result.left = v.left;
+            if (v.top < result.top)
+                result.top = v.top;
+            if (v.right > result.right)
+                result.right = v.right;
+            if (v.bottom > result.bottom)
+                result.bottom = v.bottom;
+        });
+        return result;
+    }
+
+    public constructor(x: number, y: number, wx: number, wy: number) {
+        this.x = x;
+        this.y = y;
+        this.wx = wx;
+        this.wy = wy;
+    }
+
+    public get left(): number {
+        return this.x;
+    }
+
+    public get right(): number {
+        return this.x + this.wx;
+    }
+
+    public get top(): number {
+        return this.y;
+    }
+
+    public get bottom(): number {
+        return this.y + this.wy;
+    }
+
+    public set left(value: number) {
+        this.wx -= value - this.x;
+        this.x = value;
+    }
+
+    public set right(value: number) {
+        this.wx = value - this.x;
+    }
+
+    public set top(value: number) {
+        this.wy -= value - this.y;
+        this.y = value;
+    }
+
+    public set bottom(value: number) {
+        this.wy = value - this.y;
+    }
+
+    public merge(other: BrowserRegion): BrowserRegion {
+        return BrowserRegion.fromAbsolutePositions(Math.min(this.left, other.left), Math.min(this.top, other.top), Math.max(this.right, other.right), Math.max(this.bottom, other.bottom));
+    }
+
+    public centerRegion(wx: number, wy: number, percent: number = 0.9): BrowserRegion {
+        const x = (wx - wx * percent) / 2;
+        const y = (wy - wy * percent) / 2;
+        wx *= percent;
+        wy *= percent;
+        const ratio = Math.min(wx / this.wx, wy / this.wy);
+        const pair = [this.wx * ratio, this.wy * ratio];
+        const result = new BrowserRegion(x + wx / 2 - pair[0] / 2, y + wy / 2 - pair[1] / 2, pair[0], pair[1]);
+        return result;
+    }
+
+    public transform(mat: DOMMatrix): BrowserRegion {
+        let leftTop = mat.transformPoint(new DOMPoint(this.left, this.top)),
+            rightBottom = mat.transformPoint(new DOMPoint(this.right, this.bottom));
+
+        return BrowserRegion.fromAbsolutePositions(leftTop.x, leftTop.y, rightBottom.x, rightBottom.y);
+    }
+
+    public isPointInRectangle(x: number, y: number): boolean {
+        return this.left < x && this.top < y && this.right > x && this.bottom > y
+    }
+}
+
+export abstract class BrowserRenderTarget extends BrowserRegion {
     public id: number = 0;
     public abstract render(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, delta: number): void;
 }
@@ -60,7 +157,7 @@ export class BrowserCharAnimation extends BrowserRenderAnimation {
     public expandTo: number;
 
     public constructor(rectangle: BrowserRectangle, expandTo: number, id: number = 0) {
-        super();
+        super(rectangle.x, rectangle.y, rectangle.wx, rectangle.wy);
         this.rectangle = rectangle;
         this.expandTo = expandTo;
         this.id = id;
@@ -79,6 +176,7 @@ export class BrowserCharAnimation extends BrowserRenderAnimation {
     }
 }
 
+// TO DO extend BrowserRenderTarget
 export class BrowserFramebuffer {
     private _width: number;
     private _height: number;
@@ -187,7 +285,8 @@ export class BrowserWordAnimation extends BrowserRenderAnimation {
     private _offscreen: BrowserFramebuffer;
 
     public constructor(prevWord: Array<BrowserRectangle>, currWord: Array<BrowserRectangle>, id: number = 0) {
-        super();
+        const region = BrowserRegion.fromRectangles(...prevWord).merge(BrowserRegion.fromRectangles(...currWord));
+        super(region.x, region.y, region.wx, region.wy);
         if (prevWord.length !== currWord.length)
             throw new Error("Words passed to BrowserWordAnimation are not compatible.");
         this.currentWord = prevWord;
@@ -239,7 +338,8 @@ export class BrowserShakeAnimation extends BrowserRenderAnimation {
     public rects: Array<BrowserRectangle>;
 
     public constructor(rects: Array<BrowserRectangle>, id: number = 0) {
-        super();
+        const region = BrowserRegion.fromRectangles(...rects);
+        super(region.x, region.y, region.wx, region.wy);
         this.rects = rects;
         this.id = id;
     }
@@ -266,7 +366,8 @@ export class BrowserWinAnimation extends BrowserRenderAnimation {
 
     public rects: Array<BrowserRectangle>;
     public constructor(rects: Array<BrowserRectangle>, id: number = 0) {
-        super();
+        const region = BrowserRegion.fromRectangles(...rects)
+        super(region.x, region.y, region.wx, region.wy);
         this.rects = rects;
         this.id = id;
     }
@@ -348,12 +449,7 @@ export class BrowserWinAnimation extends BrowserRenderAnimation {
 }
 
 export class BrowserRectangle extends BrowserRenderTarget {
-    public x: number;
-    public y: number;
-    public wx: number;
-    public wy: number;
     public text: string;
-
     public font: string;
     public fontStyle: string;
     public styleList: Array<string>;
@@ -366,12 +462,7 @@ export class BrowserRectangle extends BrowserRenderTarget {
     public constructor(x: number, y: number, wx: number, wy: number, attribs: {
         text?: string, font?: string, styleList?: Array<string>, style?: string, fontStyle?: string, radii?: number, strokeStyle?: string, strokeWidth?: number
     } = {}) {
-        super();
-
-        this.x = x;
-        this.y = y;
-        this.wx = wx;
-        this.wy = wy;
+        super(x, y, wx, wy);
 
         this.text = attribs.text ?? "";
         this.font = attribs.font ?? "14px Sans-Serif";
@@ -416,136 +507,6 @@ export class BrowserRectangle extends BrowserRenderTarget {
             this._currentStyle = value;
         }
     }
-
-    public get left(): number {
-        return this.x;
-    }
-
-    public get right(): number {
-        return this.x + this.wx;
-    }
-
-    public get top(): number {
-        return this.y;
-    }
-
-    public get bottom(): number {
-        return this.y + this.wy;
-    }
-
-    public set left(value: number) {
-        this.x = value;
-    }
-
-    public set right(value: number) {
-        this.wx = value - this.x;
-    }
-
-    public set top(value: number) {
-        this.y = value;
-    }
-
-    public set bottom(value: number) {
-        this.wy = value - this.y;
-    }
-
-    public isPointInRectangle(x: number, y: number): boolean {
-        return this.left < x && this.top < y && this.right > x && this.bottom > y
-    }
-}
-
-// TO DO: replace with BrowserRectangle
-export class BrowserRegion {
-    public x: number;
-    public y: number;
-    public wx: number;
-    public wy: number;
-
-    public static fromAbsolutePositions(left: number, top: number, right: number, bottom: number): BrowserRegion {
-        return new BrowserRegion(left, top, right - left, bottom - top);
-    }
-
-    public static fromRelativePositions(x: number, y: number, wx: number, wy: number): BrowserRegion {
-        return new BrowserRegion(x, y, wx, wy);
-    }
-
-    public static fromRectangles(...rects: BrowserRectangle[]): BrowserRegion {
-        const result = new BrowserRegion(rects[0].x, rects[0].y, rects[0].wx, rects[0].wy);
-        rects.forEach(v => {
-            if (v.left < result.left)
-                result.left = v.left;
-            if (v.top < result.top)
-                result.top = v.top;
-            if (v.right > result.right)
-                result.right = v.right;
-            if (v.bottom > result.bottom)
-                result.bottom = v.bottom;
-        });
-        return result;
-    }
-
-    public constructor(x: number, y: number, wx: number, wy: number) {
-        this.x = x;
-        this.y = y;
-        this.wx = wx;
-        this.wy = wy;
-    }
-
-    public get left(): number {
-        return this.x;
-    }
-
-    public get right(): number {
-        return this.x + this.wx;
-    }
-
-    public get top(): number {
-        return this.y;
-    }
-
-    public get bottom(): number {
-        return this.y + this.wy;
-    }
-
-    public set left(value: number) {
-        this.wx -= value - this.x;
-        this.x = value;
-    }
-
-    public set right(value: number) {
-        this.wx = value - this.x;
-    }
-
-    public set top(value: number) {
-        this.wy -= value - this.y;
-        this.y = value;
-    }
-
-    public set bottom(value: number) {
-        this.wy = value - this.y;
-    }
-
-    public merge(other: BrowserRegion): BrowserRegion {
-        return BrowserRegion.fromAbsolutePositions(Math.min(this.left, other.left), Math.min(this.top, other.top), Math.max(this.right, other.right), Math.max(this.bottom, other.bottom));
-    }
-
-    public centerRegion(wx: number, wy: number, percent: number = 0.9): BrowserRegion {
-        const x = (wx - wx * percent) / 2;
-        const y = (wy - wy * percent) / 2;
-        wx *= percent;
-        wy *= percent;
-        const ratio = Math.min(wx / this.wx, wy / this.wy);
-        const pair = [this.wx * ratio, this.wy * ratio];
-        const result = new BrowserRegion(x + wx / 2 - pair[0] / 2, y + wy / 2 - pair[1] / 2, pair[0], pair[1]);
-        return result;
-    }
-
-    public transform(mat: DOMMatrix): BrowserRegion {
-        let leftTop = mat.transformPoint(new DOMPoint(this.left, this.top)),
-            rightBottom = mat.transformPoint(new DOMPoint(this.right, this.bottom));
-
-        return BrowserRegion.fromAbsolutePositions(leftTop.x, leftTop.y, rightBottom.x, rightBottom.y);
-    }
 }
 
 export enum BrowserUIPlace {
@@ -575,13 +536,13 @@ export class BrowserUIFactory {
     }
 
     /**
-     * Adds rectangle to current interface at position
-     * @param rect Rectangle to add. The x and y coordinate serve as offsets from the relative positions.
+     * Adds render target to current interface at position
+     * @param rect Component to add. The x and y coordinate serve as offsets from the relative positions.
      * @param anchor The relative place in the *current* region to move the component to.
      * @param position The relative place to the anchor and the component to move to.
      * @returns A reference to rect, which is now modified.
      */
-    public addRectangle(rect: BrowserRectangle, anchor: BrowserUIPlace, position: BrowserUIPlace | undefined = undefined): BrowserRectangle {
+    public addComponent<T extends BrowserRenderTarget>(rect: T, anchor: BrowserUIPlace, position: BrowserUIPlace | undefined = undefined): T {
         // flips anchor (e.g. BottomRight -> TopLeft)
         if (!position)
             position = 4 - anchor % 10 + (4 - Math.floor(anchor / 10)) * 10;
@@ -606,13 +567,6 @@ export class BrowserUIFactory {
         return rect;
     }
 
-    // TEMP
-    public addRegion(region: BrowserRegion, anchor: BrowserUIPlace, position: BrowserUIPlace | undefined = undefined): BrowserRegion {
-        const rect = this.addRectangle(new BrowserRectangle(region.x, region.y, region.wx, region.wy), anchor, position);
-        return new BrowserRegion(rect.x, rect.y, rect.wx, rect.wy);
-    }
-    // TEMP
-
     /**
      * Measures text using font and adds that to the current interface, as well as creating a rectangle for it.
      * @param rect Uses the x, y, font, fontStyle, text properties. X and Y are offsets from position and WX and WY are offsets from the new scale.
@@ -625,7 +579,7 @@ export class BrowserUIFactory {
         const metrics = this._fontMeasurer.context.measureText(rect.text);
         rect.wx += metrics.width;
         rect.wy += metrics.emHeightDescent;
-        return this.addRectangle(rect, anchor, position);
+        return this.addComponent(rect, anchor, position);
     }
 
     public createTransform(from: BrowserRegion, to: BrowserRegion): DOMMatrix {
@@ -644,20 +598,8 @@ export class BrowserKeyboard extends BrowserRenderTarget {
     private _needsInvalidate: boolean;
 
     private _keysRegion: BrowserRegion;
-    private _adjRegion: BrowserRegion;
-    private _transform: DOMMatrix;
 
     private _currentKey: string = "";
-
-    public get region(): BrowserRegion {
-        return this._adjRegion;
-    }
-
-    public set region(value: BrowserRegion) {
-        this._adjRegion = value;
-        this._transform = new BrowserUIFactory().createTransform(this._keysRegion, this._adjRegion);
-        this._needsInvalidate = true;
-    }
 
     private createInterface(): [Array<BrowserRectangle>, BrowserRegion] {
         const rows = [
@@ -685,14 +627,14 @@ export class BrowserKeyboard extends BrowserRenderTarget {
     }
 
     public constructor(x: number, y: number) {
-        super();
+        super(x, y, 0, 0);
 
         [this._keys, this._keysRegion] = this.createInterface();
+        this.wx = this._keysRegion.wx;
+        this.wy = this._keysRegion.wy;
+
         this._image = new BrowserFramebuffer(1, 1);
         this._needsInvalidate = true;
-
-        this._transform = new DOMMatrix([1, 0, 0, 1, 0, 0]).translate(x, y);
-        this._adjRegion = this._keysRegion.transform(this._transform);
     }
 
     public render(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, delta: number): void {
@@ -704,7 +646,7 @@ export class BrowserKeyboard extends BrowserRenderTarget {
         if (this._needsInvalidate || mat4 !== this._image.context.getTransform()) {
             this._image.context.setTransform();
             this._image.context.clearRect(0, 0, this._image.canvas.width, this._image.canvas.height);
-            this._image.context.setTransform(mat4.multiply(this._transform));
+            this._image.context.setTransform(mat4.multiply(new BrowserUIFactory().createTransform(this._keysRegion, this)));
             for (let i = 0; i < this._keys.length; i++)
                 this._keys[i].render(this._image.context, delta);
             this._image.context.setTransform(mat4);
@@ -715,6 +657,7 @@ export class BrowserKeyboard extends BrowserRenderTarget {
         ctx.setTransform(mat4);
 
         this._currentKey = "";
+        this._needsInvalidate = true; // TEMP
     }
 
     public getCharRectangle(character: string): BrowserRectangle {
@@ -734,7 +677,7 @@ export class BrowserKeyboard extends BrowserRenderTarget {
     }
 
     public handleMouseClick(x: number, y: number): void {
-        const pt = this._transform.inverse().transformPoint(new DOMPoint(x, y));
+        const pt = new BrowserUIFactory().createTransform(this._keysRegion, this).inverse().transformPoint(new DOMPoint(x, y));
         for (let i = 0; i < this._keys.length; i++) {
             if (this._keys[i].isPointInRectangle(pt.x, pt.y))
                 this._currentKey = this._keys[i].text === "\u232B" ? "Backspace" : this._keys[i].text;
@@ -758,21 +701,10 @@ export class BrowserWordleBoard extends BrowserRenderTarget {
     private _wordQueue: Array<BrowserRenderAnimation>;
 
     private _cellsRegion: BrowserRegion;
-    private _adjRegion: BrowserRegion;
-    private _transform: DOMMatrix;
 
     private _charCount: number;
     private _wordCount: number;
     public addAnimations: boolean = true;
-
-    public get region(): BrowserRegion {
-        return this._adjRegion;
-    }
-
-    public set region(value: BrowserRegion) {
-        this._adjRegion = value;
-        this._transform = new BrowserUIFactory().createTransform(this._cellsRegion, this._adjRegion);
-    }
 
     /**
      * Gets current word animation. If there is no word animation, it returns a completed BrowserCharAnimation.
@@ -797,17 +729,17 @@ export class BrowserWordleBoard extends BrowserRenderTarget {
     }
 
     public constructor(x: number, y: number, wordCount: number, charCount: number) {
-        super();
+        super(x, y, 0, 0);
         this._wordCount = wordCount;
         this._charCount = charCount;
         [this._cells, this._cellsRegion] = this.createInterface();
+        this.wx = this._cellsRegion.wx;
+        this.wy = this._cellsRegion.wy;
+
         this._animations = [];
         this._wordQueue = [];
         this._image = new BrowserFramebuffer(1, 1);
         this._needsInvalidate = true;
-
-        this._transform = new DOMMatrix([1, 0, 0, 1, 0, 0]).translate(x, y);
-        this._adjRegion = this._cellsRegion.transform(this._transform);
     }
 
     /**
@@ -893,7 +825,7 @@ export class BrowserWordleBoard extends BrowserRenderTarget {
         if (this._needsInvalidate || mat4 !== this._image.context.getTransform()) {
             this._image.context.setTransform();
             this._image.context.clearRect(0, 0, this._image.canvas.width, this._image.canvas.height);
-            this._image.context.setTransform(mat4.multiply(this._transform));
+            this._image.context.setTransform(mat4.multiply(new BrowserUIFactory().createTransform(this._cellsRegion, this)));
             this._image.context.textAlign = "center";
             this._image.context.textBaseline = "middle";
             for (let i = 0; i < this._cells.length; i++) {
@@ -918,5 +850,6 @@ export class BrowserWordleBoard extends BrowserRenderTarget {
         ctx.setTransform();
         ctx.drawImage(this._image.canvas, 0, 0);
         ctx.setTransform(mat4);
+        this._needsInvalidate = true; // TEMP
     }
 }

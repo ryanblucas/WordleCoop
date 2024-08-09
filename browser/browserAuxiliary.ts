@@ -5,9 +5,10 @@
 //
 
 import { WordleGame } from "../wordle.js";
-import { BrowserFramebuffer, BrowserKeyboard, BrowserRectangle, BrowserRegion, BrowserRenderTarget, BrowserUIFactory, BrowserUIPlace, BrowserWordleBoard } from "./render.js";
+import { BrowserFramebuffer, BrowserKeyboard, BrowserRectangle, BrowserRegion, BrowserUIFactory, BrowserUIPlace, BrowserWordleBoard } from "./render.js";
 
-export abstract class BrowserState extends BrowserRenderTarget {
+// add back extending BrowserRenderTarget and let BrowserWordle module handle matrix transform and backgrounds
+export abstract class BrowserState {
     public abstract hasQueuedState(): boolean;
     public abstract popQueuedState(): BrowserState | undefined;
     public abstract handleResize(wx: number, wy: number): void;
@@ -46,13 +47,10 @@ export abstract class BrowserGameState extends BrowserState {
 
     protected createInterface(): void {
         const factory = new BrowserUIFactory();
-        this.board = new BrowserWordleBoard(0, 0, this.game.board.totalWordCount, this.game.board.totalCharacterCount);
-        this.board.region = factory.addRegion(this.board.region, BrowserUIPlace.Middle);
-        this.keyboard = new BrowserKeyboard(0, 18);
-        this.keyboard.region = factory.addRegion(this.keyboard.region, BrowserUIPlace.BottomMiddle, BrowserUIPlace.BottomMiddle);
+        this.board = factory.addComponent(new BrowserWordleBoard(0, 0, this.game.board.totalWordCount, this.game.board.totalCharacterCount), BrowserUIPlace.Middle);
+        this.keyboard = factory.addComponent(new BrowserKeyboard(0, 18), BrowserUIPlace.BottomMiddle, BrowserUIPlace.BottomMiddle);
         this.menuButton = factory.addText(new BrowserRectangle(0, -4, 0, 0, { text: "MENU", font: "bold 24px \"Verdana\"" }), BrowserUIPlace.TopLeft, BrowserUIPlace.TopRight);
         this.region = factory.region;
-        this.transform = new BrowserUIFactory().createTransform(this.region, this.region.centerRegion(this.wx, this.wy));
     }
 
     public constructor(gameName: string) {
@@ -149,10 +147,10 @@ export abstract class BrowserGameState extends BrowserState {
         ctx.fillText(this.message, this.region.right, this.region.top, 250);
 
         ctx.font = "10px Sans-Serif";
-        ctx.fillText(`${this.gameName} game`, this.region.right, this.board.region.bottom + 4, this.region.wx / 2);
+        ctx.fillText(`${this.gameName} game`, this.region.right, this.board.bottom + 4, this.region.wx / 2);
         if (this.game.guidedMode) {
             ctx.textAlign = "left";
-            ctx.fillText("Guided mode -- Shift+T/Menu to toggle", this.region.left, this.board.region.bottom + 4, this.region.wx / 2);
+            ctx.fillText("Guided mode -- Shift+T/Menu to toggle", this.region.left, this.board.bottom + 4, this.region.wx / 2);
         }
     }
 }
