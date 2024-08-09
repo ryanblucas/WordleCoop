@@ -377,7 +377,7 @@ module BrowserWordle {
                     const unblurred = new BrowserFramebuffer(previousWidth, previousHeight);
                     unblurred.context.setTransform(factory.createTransform(prevState, prevState.centerRegion(previousWidth, previousHeight, prevState.coverage)));
                     prevState.render(unblurred.context, 0); // dont update the previous state anymore by setting delta to 0
-                    background.context.filter = "blur(2px)";
+                    background.context.filter = "blur(4px)";
                     background.context.drawImage(unblurred.canvas, 0, 0);
                 }
                 else {
