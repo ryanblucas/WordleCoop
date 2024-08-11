@@ -199,23 +199,9 @@ export class CoopClient {
         this._channel.addEventListener("close", _ => this.onClose(this));
     }
 
-    /**
-     * Polls signaling server with val
-     * @param val The string to be sent to the signaling server
-     * @returns The response the server sent.
-     */
-    public static async poll(val: string, signalAddr: string = CoopClient.officialSignalServerAddr): Promise<string> {
-        const ws = new WebSocket(signalAddr);
-        await new Promise((e) => { ws.addEventListener("open", e); });
-        ws.send(val);
-        const result = await new Promise((e) => { ws.addEventListener("message", e); });
-        ws.close();
-        return await (result as MessageEvent).data.text();
-    }
-
     private static validateSessionId(sessionId: string): boolean {
         for (let i = 0; i < sessionId.length; i++) {
-            if ((sessionId[i] < 'A' || sessionId[i] > 'Z') && (sessionId[i] < 'a' && sessionId[i] > 'z'))
+            if (!"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz".includes(sessionId[i]))
                 return false;
         }
         return true;
@@ -226,18 +212,13 @@ export class CoopClient {
         connection.onicecandidate = ev => {
             if (!ev.candidate) {
                 ws.send("Complete");
-                connection.onicecandidate = null;
-                if (++completedCount >= 2) {
+                if (++completedCount >= 2)
                     ws.close();
-                    return;
-                }
+                return;
             }
-            else {
-                ws.send(`IceCandidate\n${ev.candidate.sdpMid}\n${ev.candidate.candidate}`);
-                console.log(`Sending ICE candidate: ${ev.candidate.candidate}`);
-            }
+            ws.send(`IceCandidate\n${ev.candidate.sdpMid}\n${ev.candidate.candidate}`);
+            console.log(`Sending ICE candidate: ${ev.candidate.candidate}`);
         };
-        const descriptionType = hosting ? "answer" : "offer";
         const onDescriptionCreation: (value: RTCSessionDescriptionInit) => any = i => {
             console.log(`Sending description: ${i.sdp}`);
             ws.send("Description\n" + i.sdp);
@@ -252,21 +233,19 @@ export class CoopClient {
                     break;
                 case "Description":
                     console.log(`Received description: ${args.slice(1, -1).join("\n")}`);
-                    connection.setRemoteDescription({ sdp: args.slice(1, -1).join("\n"), type: descriptionType });
+                    connection.setRemoteDescription({ sdp: args.slice(1, -1).join("\n"), type: hosting ? "answer" : "offer" });
                     if (!hosting)
                         connection.createAnswer().then(onDescriptionCreation);
                     break;
                 case "Complete":
-                    if (++completedCount >= 2) {
+                    if (++completedCount >= 2)
                         ws.close();
-                        return;
-                    }
                     break;
             }
             if (args[0] === "ClientJoin" && hosting)
                 connection.createOffer().then(onDescriptionCreation);
         };
-        ws.onclose = _ => {
+        ws.onclose = () => {
             if (completedCount < 2) {
                 console.log("WebSocket closed mid-signal session.");
                 connection.close();
@@ -289,7 +268,11 @@ export class CoopClient {
             throw new Error(`Invalid session ID \"${sessionId}\" given from server, aborting host.`);
         ws.send(`JoinSession\n${sessionId}`);
 
-        const connection = new RTCPeerConnection();
+        ws.send("RequestIceServers");
+        const result = await new Promise((e) => { ws.addEventListener("message", e); });
+        const iceServers = JSON.parse((result as MessageEvent).data as string);
+
+        const connection = new RTCPeerConnection({ iceServers: iceServers });
         const channel = connection.createDataChannel(CoopClient.mainDataChannelLabel);
 
         this.createSignalLoop(connection, ws, true);
@@ -306,11 +289,15 @@ export class CoopClient {
             throw new Error(`Invalid session ID \"${sessionId}\", aborting join.`);
         const ws = new WebSocket(signalAddr);
         await new Promise((e) => { ws.addEventListener("open", e); });
-        ws.send(`JoinSession\n${sessionId}`);
 
-        const connection = new RTCPeerConnection();
+        ws.send("RequestIceServers");
+        const result = await new Promise((e) => { ws.addEventListener("message", e); });
+        const iceServers = JSON.parse((result as MessageEvent).data.text());
+
+        const connection = new RTCPeerConnection({ iceServers: iceServers });
         const channelEvent: Promise<RTCDataChannelEvent> = new Promise(e => connection.addEventListener("datachannel", e));
 
+        ws.send(`JoinSession\n${sessionId}`);
         this.createSignalLoop(connection, ws, false);
 
         return new CoopClient(connection, (await channelEvent).channel, sessionId);

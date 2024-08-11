@@ -11,6 +11,7 @@ interface SignalServerSettings {
     port: number;
     sessionDurationMillis: number;
     sessionIdLength: number;
+    iceServers: Array<RTCIceServer>;
 }
 
 interface SignalServerUser {
@@ -51,17 +52,19 @@ module SignalServer {
             return;
         }
         for (let i = 0; i < session.users.length; i++)
-            session.users[i].socket.send(`ClientJoin`); // TO DO: use clientName as a parameter
+            session.users[i].socket.send(`ClientJoin`);
         session.users.push({ socket: client.socket, completed: false });
         client.sessionId = id;
         console.log(`Client joined session: ${client.sessionId}.`);
     }
 
-    function parseMessage(message: any, client: SignalServerUser): void {
-        const args = message.toString().split('\n');
+    function parseMessage(args: string[], client: SignalServerUser): void {
         switch (args[0]) {
             case "RequestSessionId":
                 handleRequestSessionId(client);
+                break;
+            case "RequestIceServers":
+                client.socket.send(JSON.stringify(serverSettings.iceServers));
                 break;
             case "JoinSession":
                 handleJoinSession(args[1], client);
@@ -72,13 +75,13 @@ module SignalServer {
 
             case "IceCandidate":
             case "Description": {
-                sessions.get(client.sessionId)!.users.filter(v => v.socket !== client.socket).forEach(v => v.socket.send(message.toString()));
+                sessions.get(client.sessionId)!.users.filter(v => v.socket !== client.socket).forEach(v => v.socket.send(args.join('\n')));
                 break;
             }
             case "Complete": {
                 const session = sessions.get(client.sessionId)!;
                 const userIndex = session.users.findIndex(v => v.socket === client.socket);
-                session.users.forEach((v, i) => { if (i !== userIndex) v.socket.send(message.toString()); });
+                session.users.forEach((v, i) => { if (i !== userIndex) v.socket.send(args.join('\n')); });
                 session.users[userIndex].completed = true;
                 if (session.users.findIndex(v => !v.completed) === -1)
                     session.users.forEach(v => v.socket.close());
@@ -95,6 +98,10 @@ module SignalServer {
         settings.port ??= 25566;
         settings.sessionDurationMillis ??= 1000 * 60 * 5;
         settings.sessionIdLength ??= 5;
+        settings.iceServers ??= [];
+
+        console.log("Server settings:")
+        Object.entries(settings).forEach(v => console.log(`\t${v[0]} = ${JSON.stringify(v[1])}`) )
 
         serverSettings = settings;
 
@@ -104,15 +111,11 @@ module SignalServer {
         server.addListener("connection", (client) => {
             const user = { socket: client, sessionId: "" };
             console.log(`Client connected.`);
-            client.addEventListener("message", (msg) => {
-                try {
-                    parseMessage(msg.data, user);
-                }
-                catch (error) {
-                    console.log(`Message parse error from client, error (${error}).`);
-                }
-            });
+
+            client.addEventListener("message", msg => parseMessage(msg.data.toString().split('\n'), user));
             client.addEventListener("close", () => {
+                if (!sessions.has(user.sessionId))
+                    return;
                 const session = sessions.get(user.sessionId)!;
                 console.log(`Client left session: ${user.sessionId}.`);
                 session.users = session.users.filter(v => v.socket !== client);
@@ -122,6 +125,7 @@ module SignalServer {
                 }
             });
         });
+
         setInterval(() => {
             const startTime = Date.now();
             sessions.forEach((i) => {
@@ -132,16 +136,36 @@ module SignalServer {
     }
 }
 
-let args: Record<string, any> = {};
-try {
-    process.argv.slice(2).forEach(pair => {
-        const arr = pair.split('=');
-        args[arr[0]] = JSON.parse(arr[1]);
-    });
+function isUrl(url: string): boolean {
+    try {
+        new URL(url);
+    }
+    catch (_) {
+        return false;
+    }
+    return true;
 }
-catch (e) {
-    console.log(`Failed to parse arguments (${e}).`);
-}
-finally {
+
+const args: Record<string, any> = {};
+let servers: Array<Record<string, any>> = [];
+process.argv.slice(2).forEach(pair => {
+    const arr = pair.split('=');
+    const key = arr[0];
+    if (key === "server") // create RTCIceServer interface
+        servers = [{ urls: [] } as Record<string, any>].concat(servers);
+    else if (servers.length > 0) {
+        if (key === "url")
+            servers[0]["urls"].push(JSON.parse(arr[1].startsWith('"') ? arr[1] : `"${arr[1]}"`));
+        else if (key in ({} as RTCIceServer))
+            servers[0][key] = JSON.parse(arr[1]);
+    }        
+    else
+        args[key] = JSON.parse(arr[1]);
+});
+
+if (servers.find(i => (i.urls as Array<string>).find(j => !isUrl(j))))
+    console.log("One of the ICE servers passed is invalid.");
+else {
+    args.iceServers = servers;
     SignalServer.run(args);
 }
